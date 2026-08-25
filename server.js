@@ -12,6 +12,9 @@ app.use('/api/auth', authRoutes);
 const adminRoutes = require('./routes/admin.routes');
 app.use('/api/admin', adminRoutes);
 
+const groupRoutes = require('./routes/group.routes');
+app.use('/api/groups', groupRoutes);
+
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
