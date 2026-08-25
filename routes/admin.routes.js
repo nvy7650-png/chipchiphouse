@@ -4,21 +4,12 @@ const db = require('../db');
 
 // ==========================================
 // GET ADMIN DASHBOARD STATISTICS
-// GET /api/admin/stats?month=8&year=2026
+// GET /api/admin/stats?period=month
+// GET /api/admin/stats?period=day
 // ==========================================
 router.get('/stats', async (req, res) => {
   try {
-    const now = new Date();
-
-    const month = Number(req.query.month) || (now.getMonth() + 1);
-    const year = Number(req.query.year) || now.getFullYear();
-
-    if (month < 1 || month > 12) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tháng không hợp lệ!'
-      });
-    }
+    const period = req.query.period || 'month';
 
     // ==========================================
     // 1. TỔNG KHÁCH HÀNG
@@ -39,40 +30,26 @@ router.get('/stats', async (req, res) => {
     `);
 
     // ==========================================
-    // 3. ĐƠN HÀNG TRONG THÁNG
+    // 3. TỔNG ĐƠN HÀNG
     // ==========================================
     const [ordersResult] = await db.query(`
       SELECT COUNT(*) AS totalOrders
       FROM orders
-      WHERE MONTH(created_at) = ?
-        AND YEAR(created_at) = ?
-    `, [month, year]);
+    `);
 
     // ==========================================
-    // 4. DOANH THU TRONG THÁNG
+    // 4. TỔNG DOANH THU
     // Chỉ tính đơn completed
     // ==========================================
     const [revenueResult] = await db.query(`
       SELECT COALESCE(SUM(total_amount), 0) AS totalRevenue
       FROM orders
       WHERE status = 'completed'
-        AND MONTH(created_at) = ?
-        AND YEAR(created_at) = ?
-    `, [month, year]);
+    `);
 
     // ==========================================
-    // 5. KHÁCH HÀNG MỚI TRONG THÁNG
-    // ==========================================
-    const [newUsersResult] = await db.query(`
-      SELECT COUNT(*) AS newUsers
-      FROM users
-      WHERE role = 'user'
-        AND MONTH(created_at) = ?
-        AND YEAR(created_at) = ?
-    `, [month, year]);
-
-    // ==========================================
-    // 6. ĐƠN HÀNG GẦN NHẤT
+    // 5. ĐƠN HÀNG MỚI NHẤT
+    // ƯU TIÊN HIỂN THỊ ĐẦU TIÊN
     // ==========================================
     const [recentOrders] = await db.query(`
       SELECT
@@ -85,46 +62,101 @@ router.get('/stats', async (req, res) => {
       LEFT JOIN users u
         ON o.user_id = u.id
       ORDER BY o.created_at DESC
-      LIMIT 5
+      LIMIT 10
     `);
 
     // ==========================================
-    // 7. DOANH THU 12 THÁNG
+    // 6. THỐNG KÊ THEO NGÀY
     // ==========================================
-    const [monthlyRevenue] = await db.query(`
+    const [dailyStats] = await db.query(`
       SELECT
-        MONTH(created_at) AS month,
-        COALESCE(SUM(total_amount), 0) AS revenue
+        DATE(created_at) AS date,
+        COUNT(*) AS orders,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN status = 'completed'
+              THEN total_amount
+              ELSE 0
+            END
+          ),
+          0
+        ) AS revenue
       FROM orders
-      WHERE status = 'completed'
-        AND YEAR(created_at) = ?
-      GROUP BY MONTH(created_at)
-      ORDER BY MONTH(created_at)
-    `, [year]);
+      WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+      GROUP BY DATE(created_at)
+      ORDER BY date ASC
+    `);
 
     // ==========================================
-    // 8. ĐƠN HÀNG 12 THÁNG
+    // 7. THỐNG KÊ THEO THÁNG
     // ==========================================
-    const [monthlyOrders] = await db.query(`
+    const [monthlyStats] = await db.query(`
       SELECT
-        MONTH(created_at) AS month,
-        COUNT(*) AS orders
+        DATE_FORMAT(created_at, '%Y-%m') AS month,
+        COUNT(*) AS orders,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN status = 'completed'
+              THEN total_amount
+              ELSE 0
+            END
+          ),
+          0
+        ) AS revenue
       FROM orders
-      WHERE YEAR(created_at) = ?
-      GROUP BY MONTH(created_at)
-      ORDER BY MONTH(created_at)
-    `, [year]);
+      WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+      GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+      ORDER BY month ASC
+    `);
+
+    // ==========================================
+    // 8. THỐNG KÊ TRONG THÁNG HIỆN TẠI
+    // ==========================================
+    const [currentMonthResult] = await db.query(`
+      SELECT
+        COUNT(*) AS orders,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN status = 'completed'
+              THEN total_amount
+              ELSE 0
+            END
+          ),
+          0
+        ) AS revenue
+      FROM orders
+      WHERE YEAR(created_at) = YEAR(CURDATE())
+        AND MONTH(created_at) = MONTH(CURDATE())
+    `);
+
+    // ==========================================
+    // 9. THỐNG KÊ TRONG NGÀY HÔM NAY
+    // ==========================================
+    const [todayResult] = await db.query(`
+      SELECT
+        COUNT(*) AS orders,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN status = 'completed'
+              THEN total_amount
+              ELSE 0
+            END
+          ),
+          0
+        ) AS revenue
+      FROM orders
+      WHERE DATE(created_at) = CURDATE()
+    `);
 
     // ==========================================
     // RESPONSE
     // ==========================================
     res.json({
       success: true,
-
-      selectedPeriod: {
-        month,
-        year
-      },
 
       stats: {
         totalRevenue: Number(
@@ -143,20 +175,47 @@ router.get('/stats', async (req, res) => {
           usersResult[0]?.totalUsers || 0
         ),
 
-        newUsers: Number(
-          newUsersResult[0]?.newUsers || 0
-        )
+        currentMonth: {
+          revenue: Number(
+            currentMonthResult[0]?.revenue || 0
+          ),
+          orders: Number(
+            currentMonthResult[0]?.orders || 0
+          )
+        },
+
+        today: {
+          revenue: Number(
+            todayResult[0]?.revenue || 0
+          ),
+          orders: Number(
+            todayResult[0]?.orders || 0
+          )
+        }
       },
 
-      monthlyRevenue,
+      recentOrders,
 
-      monthlyOrders,
+      charts: {
+        daily: dailyStats.map(item => ({
+          date: item.date,
+          orders: Number(item.orders),
+          revenue: Number(item.revenue)
+        })),
 
-      recentOrders
+        monthly: monthlyStats.map(item => ({
+          month: item.month,
+          orders: Number(item.orders),
+          revenue: Number(item.revenue)
+        }))
+      }
     });
 
   } catch (error) {
-    console.error('Lỗi lấy thống kê admin:', error);
+    console.error(
+      'Lỗi lấy thống kê admin:',
+      error
+    );
 
     res.status(500).json({
       success: false,
