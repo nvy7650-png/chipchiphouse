@@ -15,6 +15,9 @@ app.use('/api/admin', adminRoutes);
 const groupRoutes = require('./routes/group.routes');
 app.use('/api/groups', groupRoutes);
 
+const albumRoutes = require('./routes/album.routes');
+app.use('/api/albums', albumRoutes);
+
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
