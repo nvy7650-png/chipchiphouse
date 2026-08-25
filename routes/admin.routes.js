@@ -7,12 +7,15 @@ const db = require('../db');
 // ==========================================
 router.get('/stats', async (req, res) => {
   try {
+
     // ==============================
-    // TỔNG SỐ NGƯỜI DÙNG
+    // TỔNG SỐ KHÁCH HÀNG
+    // Chỉ tính role = 'user'
     // ==============================
     const [usersResult] = await db.query(`
       SELECT COUNT(*) AS totalUsers
       FROM users
+      WHERE role = 'user'
     `);
 
     // ==============================
@@ -77,6 +80,7 @@ router.get('/stats', async (req, res) => {
           productsResult[0]?.totalProducts || 0
         ),
 
+        // Chỉ trả về số khách hàng role = user
         totalUsers: Number(
           usersResult[0]?.totalUsers || 0
         )
@@ -86,6 +90,7 @@ router.get('/stats', async (req, res) => {
     });
 
   } catch (error) {
+
     console.error(
       'Lỗi lấy thống kê admin:',
       error
