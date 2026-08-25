@@ -361,97 +361,46 @@ router.get('/:id/products', async (req, res) => {
 });
 
 // ==========================================
-// GET - LẤY ALBUM / SẢN PHẨM CỦA NHÓM
-// GET /api/groups/:id/products
+// GET - LẤY CHI TIẾT NHÓM NHẠC
+// GET /api/groups/:id
 // ==========================================
 
-router.get('/:id/products', async (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Kiểm tra nhóm tồn tại
-    const [groups] = await db.query(
+    const [rows] = await db.query(
       `
-      SELECT id, name
+      SELECT
+        id,
+        name
       FROM kpop_groups
       WHERE id = ?
+      LIMIT 1
       `,
       [id]
     );
 
-    if (groups.length === 0) {
+    if (rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy nhóm nhạc!'
       });
     }
 
-    // Lấy các album của nhóm
-    // 1 product = 1 album
-    // product_versions = các version của album
-    const [products] = await db.query(
-      `
-      SELECT
-        p.id,
-        p.group_id,
-        p.title,
-        p.category,
-        p.is_preorder,
-        p.release_date,
-        p.description,
-        p.created_at,
-
-        COUNT(pv.id) AS version_count,
-
-        MIN(pv.price) AS min_price,
-        MAX(pv.price) AS max_price,
-
-        COALESCE(SUM(pv.stock), 0) AS total_stock,
-
-        (
-          SELECT pv2.image_url
-          FROM product_versions pv2
-          WHERE pv2.product_id = p.id
-            AND pv2.image_url IS NOT NULL
-          ORDER BY pv2.id ASC
-          LIMIT 1
-        ) AS image_url
-
-      FROM products p
-
-      LEFT JOIN product_versions pv
-        ON pv.product_id = p.id
-
-      WHERE p.group_id = ?
-
-      GROUP BY
-        p.id,
-        p.group_id,
-        p.title,
-        p.category,
-        p.is_preorder,
-        p.release_date,
-        p.description,
-        p.created_at
-
-      ORDER BY p.id DESC
-      `,
-      [id]
-    );
-
     res.json({
       success: true,
-      group: groups[0],
-      products
+      group: rows[0]
     });
 
   } catch (error) {
-    console.error('Lỗi lấy sản phẩm của nhóm:', error);
+    console.error('Lỗi lấy chi tiết nhóm:', error);
 
     res.status(500).json({
       success: false,
-      message: 'Không thể lấy album của nhóm nhạc!'
+      message: 'Không thể lấy thông tin nhóm nhạc!'
     });
   }
 });
+
 module.exports = router;
