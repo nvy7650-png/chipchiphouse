@@ -3,44 +3,66 @@ const router = express.Router();
 
 const db = require('../db');
 
-// ==========================================
-// 1. ĐĂNG KÝ
+// ======================================================
+// ĐĂNG KÝ
 // POST /api/auth/register
-// ==========================================
+// ======================================================
 router.post('/register', async (req, res) => {
   try {
-    const { username, email, phone, password } = req.body;
+    const {
+      username,
+      email,
+      phone,
+      password
+    } = req.body;
 
-    // Kiểm tra dữ liệu bắt buộc
+    // -----------------------------
+    // Kiểm tra dữ liệu
+    // -----------------------------
     if (!username || !email || !phone || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Vui lòng điền đầy đủ tất cả các thông tin!'
+        message: 'Vui lòng điền đầy đủ tất cả thông tin!'
       });
     }
 
-    // Kiểm tra email
+    // -----------------------------
+    // Validate username
+    // -----------------------------
+    if (username.trim().length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tên tài khoản phải có ít nhất 3 ký tự!'
+      });
+    }
+
+    // -----------------------------
+    // Validate email
+    // -----------------------------
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(email.trim())) {
       return res.status(400).json({
         success: false,
-        message: 'Định dạng Email không hợp lệ!'
+        message: 'Email không hợp lệ!'
       });
     }
 
-    // Kiểm tra số điện thoại
+    // -----------------------------
+    // Validate phone
+    // -----------------------------
     const phoneRegex = /^0[0-9]{9}$/;
 
-    if (!phoneRegex.test(phone)) {
+    if (!phoneRegex.test(phone.trim())) {
       return res.status(400).json({
         success: false,
-        message:
-          'Số điện thoại không hợp lệ! Phải gồm đúng 10 chữ số và bắt đầu bằng số 0.'
+        message: 'Số điện thoại phải gồm đúng 10 chữ số và bắt đầu bằng 0!'
       });
     }
 
-    // Kiểm tra mật khẩu
+    // -----------------------------
+    // Validate password
+    // -----------------------------
     if (password.length < 6) {
       return res.status(400).json({
         success: false,
@@ -48,9 +70,15 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // ==========================================
-    // KIỂM TRA USER ĐÃ TỒN TẠI CHƯA
-    // ==========================================
+    // Chuẩn hóa dữ liệu
+    const cleanUsername = username.trim();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPhone = phone.trim();
+
+    // ==================================================
+    // KIỂM TRA USER ĐÃ TỒN TẠI
+    // ==================================================
+
     const [existingUsers] = await db.query(
       `
       SELECT id, name, email, phone
@@ -60,27 +88,34 @@ router.post('/register', async (req, res) => {
          OR phone = ?
       LIMIT 1
       `,
-      [username, email, phone]
+      [
+        cleanUsername,
+        cleanEmail,
+        cleanPhone
+      ]
     );
 
     if (existingUsers.length > 0) {
       const existingUser = existingUsers[0];
 
-      if (existingUser.name === username) {
+      if (existingUser.name === cleanUsername) {
         return res.status(400).json({
           success: false,
           message: 'Tên tài khoản này đã tồn tại!'
         });
       }
 
-      if (existingUser.email === email) {
+      if (
+        existingUser.email &&
+        existingUser.email.toLowerCase() === cleanEmail
+      ) {
         return res.status(400).json({
           success: false,
           message: 'Email này đã được đăng ký!'
         });
       }
 
-      if (existingUser.phone === phone) {
+      if (existingUser.phone === cleanPhone) {
         return res.status(400).json({
           success: false,
           message: 'Số điện thoại này đã được đăng ký!'
@@ -88,40 +123,80 @@ router.post('/register', async (req, res) => {
       }
     }
 
-    // ==========================================
-    // THÊM USER VÀO TIDB
-    // ==========================================
+    // ==================================================
+    // TẠO USER
+    // ==================================================
+
     const [result] = await db.query(
       `
       INSERT INTO users
-        (name, email, phone, password, role)
+      (
+        name,
+        email,
+        phone,
+        password,
+        role
+      )
       VALUES
-        (?, ?, ?, ?, 'user')
+      (?, ?, ?, ?, 'user')
       `,
-      [username, email, phone, password]
+      [
+        cleanUsername,
+        cleanEmail,
+        cleanPhone,
+        password
+      ]
     );
 
-    // Lấy user vừa tạo
+    // ==================================================
+    // LẤY USER VỪA TẠO
+    // ==================================================
+
     const [rows] = await db.query(
       `
-      SELECT id, name, email, phone, role, created_at
+      SELECT
+        id,
+        name,
+        email,
+        phone,
+        role,
+        created_at
       FROM users
       WHERE id = ?
+      LIMIT 1
       `,
       [result.insertId]
     );
 
+    if (rows.length === 0) {
+      return res.status(500).json({
+        success: false,
+        message: 'Tạo tài khoản thất bại!'
+      });
+    }
+
     const user = rows[0];
 
-    // Trả về thông tin user
-    // Frontend sẽ lưu localStorage rồi chuyển về Home
+    // ==================================================
+    // TRẢ RESPONSE
+    // ==================================================
+
     return res.status(201).json({
       success: true,
-      user: user
+      message: 'Đăng ký tài khoản thành công!',
+      user
     });
 
   } catch (error) {
-    console.error('Lỗi đăng ký:', error);
+    console.error('❌ Lỗi đăng ký:', error);
+
+    // Trường hợp email bị UNIQUE
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({
+        success: false,
+        message: 'Email này đã được đăng ký!'
+      });
+    }
 
     return res.status(500).json({
       success: false,
@@ -131,14 +206,20 @@ router.post('/register', async (req, res) => {
 });
 
 
-// ==========================================
-// 2. ĐĂNG NHẬP
+// ======================================================
+// ĐĂNG NHẬP
 // POST /api/auth/login
-// ==========================================
+// ======================================================
 router.post('/login', async (req, res) => {
   try {
-    const { account, password } = req.body;
+    const {
+      account,
+      password
+    } = req.body;
 
+    // -----------------------------
+    // Kiểm tra dữ liệu
+    // -----------------------------
     if (!account || !password) {
       return res.status(400).json({
         success: false,
@@ -146,23 +227,43 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Tìm theo:
-    // - username (cột name)
+    const cleanAccount = account.trim();
+
+    // ==================================================
+    // TÌM USER
+    //
+    // account có thể là:
+    // - name
     // - email
-    // - số điện thoại
+    // - phone
+    // ==================================================
+
     const [rows] = await db.query(
       `
-      SELECT id, name, email, phone, password, role, created_at
+      SELECT
+        id,
+        name,
+        email,
+        phone,
+        password,
+        role,
+        created_at
       FROM users
       WHERE name = ?
          OR email = ?
          OR phone = ?
       LIMIT 1
       `,
-      [account, account, account]
+      [
+        cleanAccount,
+        cleanAccount.toLowerCase(),
+        cleanAccount
+      ]
     );
 
-    // Không tìm thấy tài khoản
+    // -----------------------------
+    // Không tìm thấy
+    // -----------------------------
     if (rows.length === 0) {
       return res.status(404).json({
         success: false,
@@ -172,7 +273,10 @@ router.post('/login', async (req, res) => {
 
     const user = rows[0];
 
-    // Kiểm tra mật khẩu
+    // ==================================================
+    // KIỂM TRA PASSWORD
+    // ==================================================
+
     if (user.password !== password) {
       return res.status(401).json({
         success: false,
@@ -180,15 +284,35 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Không trả password về frontend
+    // ==================================================
+    // CHUẨN HÓA ROLE
+    // ==================================================
+
+    const role = user.role
+      ? String(user.role).trim().toLowerCase()
+      : 'user';
+
+    // ==================================================
+    // USER DATA TRẢ VỀ FRONTEND
+    // KHÔNG TRẢ PASSWORD
+    // ==================================================
+
     const userData = {
       id: user.id,
       name: user.name,
       email: user.email,
       phone: user.phone,
-      role: user.role,
+      role: role,
       created_at: user.created_at
     };
+
+    console.log(
+      `✅ Login: ${user.email} | role: ${role}`
+    );
+
+    // ==================================================
+    // RESPONSE
+    // ==================================================
 
     return res.status(200).json({
       success: true,
@@ -197,7 +321,7 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Lỗi đăng nhập:', error);
+    console.error('❌ Lỗi đăng nhập:', error);
 
     return res.status(500).json({
       success: false,
@@ -205,5 +329,6 @@ router.post('/login', async (req, res) => {
     });
   }
 });
+
 
 module.exports = router;
