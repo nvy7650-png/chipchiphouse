@@ -325,29 +325,27 @@ router.get('/:id', async (req, res) => {
 
 
 // ==========================================
-// GET - LẤY ALBUM / SẢN PHẨM CỦA MỘT NHÓM
+// GET - LẤY CÁC SẢN PHẨM / VERSION CỦA NHÓM
 // GET /api/groups/:id/products
+//
+// Mỗi product = 1 version của album
 // ==========================================
+
 router.get('/:id/products', async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!id || isNaN(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'ID nhóm nhạc không hợp lệ!'
-      });
-    }
-
-    // Kiểm tra nhóm tồn tại
-    const [groups] = await db.query(
-      `
-      SELECT id, name
+    // ==============================
+    // KIỂM TRA NHÓM
+    // ==============================
+    const [groups] = await db.query(`
+      SELECT
+        id,
+        name
       FROM kpop_groups
       WHERE id = ?
-      `,
-      [id]
-    );
+      LIMIT 1
+    `, [id]);
 
     if (groups.length === 0) {
       return res.status(404).json({
@@ -356,41 +354,30 @@ router.get('/:id/products', async (req, res) => {
       });
     }
 
-    // Lấy sản phẩm thuộc nhóm
-    const [products] = await db.query(
-      `
+    // ==============================
+    // LẤY SẢN PHẨM CỦA NHÓM
+    // Mỗi product = 1 version
+    // ==============================
+    const [products] = await db.query(`
       SELECT
         p.id,
         p.group_id,
         p.title,
         p.category,
+        p.price,
+        p.stock,
+        p.image_url,
         p.is_preorder,
         p.release_date,
         p.description,
-        p.created_at,
-
-        COUNT(pv.id) AS version_count,
-        MIN(pv.price) AS min_price,
-        MAX(pv.price) AS max_price,
-        COALESCE(SUM(pv.stock), 0) AS total_stock,
-
-        (
-          SELECT pv2.image_url
-          FROM product_versions pv2
-          WHERE pv2.product_id = p.id
-          ORDER BY pv2.id ASC
-          LIMIT 1
-        ) AS image_url
+        p.created_at
 
       FROM products p
-      LEFT JOIN product_versions pv
-        ON p.id = pv.product_id
+
       WHERE p.group_id = ?
-      GROUP BY p.id
+
       ORDER BY p.id DESC
-      `,
-      [id]
-    );
+    `, [id]);
 
     res.json({
       success: true,
@@ -399,11 +386,15 @@ router.get('/:id/products', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Lỗi lấy sản phẩm của nhóm:', error);
+
+    console.error(
+      'Lỗi lấy sản phẩm của nhóm:',
+      error
+    );
 
     res.status(500).json({
       success: false,
-      message: 'Không thể lấy album của nhóm!'
+      message: 'Không thể lấy sản phẩm của nhóm!'
     });
   }
 });
