@@ -7,7 +7,6 @@ const db = require('../db');
 // GET - LẤY TẤT CẢ NHÓM NHẠC
 // GET /api/groups
 // ==========================================
-
 router.get('/', async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -38,7 +37,6 @@ router.get('/', async (req, res) => {
 // POST - THÊM NHÓM NHẠC
 // POST /api/groups
 // ==========================================
-
 router.post('/', async (req, res) => {
   try {
     const { name } = req.body;
@@ -108,10 +106,17 @@ router.post('/', async (req, res) => {
 // PUT - CẬP NHẬT NHÓM NHẠC
 // PUT /api/groups/:id
 // ==========================================
-
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!id || isNaN(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID nhóm nhạc không hợp lệ!'
+      });
+    }
+
     const { name } = req.body;
 
     if (!name || !name.trim()) {
@@ -198,10 +203,16 @@ router.put('/:id', async (req, res) => {
 // DELETE - XÓA NHÓM NHẠC
 // DELETE /api/groups/:id
 // ==========================================
-
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!id || isNaN(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID nhóm nhạc không hợp lệ!'
+      });
+    }
 
     // Kiểm tra nhóm tồn tại
     const [existing] = await db.query(
@@ -234,8 +245,7 @@ router.delete('/:id', async (req, res) => {
     if (products.length > 0) {
       return res.status(400).json({
         success: false,
-        message:
-          'Không thể xóa nhóm nhạc vì đang có sản phẩm thuộc nhóm này!'
+        message: 'Không thể xóa nhóm nhạc vì đang có sản phẩm thuộc nhóm này!'
       });
     }
 
@@ -262,14 +272,72 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+
+// ==========================================
+// GET - LẤY CHI TIẾT NHÓM NHẠC
+// GET /api/groups/:id
+// ==========================================
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Kiểm tra ID có phải số hợp lệ hay không
+    if (!id || isNaN(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID nhóm nhạc không hợp lệ!'
+      });
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        id,
+        name
+      FROM kpop_groups
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy nhóm nhạc!'
+      });
+    }
+
+    res.json({
+      success: true,
+      group: rows[0]
+    });
+
+  } catch (error) {
+    console.error('Lỗi lấy chi tiết nhóm:', error);
+
+    res.status(500).json({
+      success: false,
+      message: 'Không thể lấy thông tin nhóm nhạc!'
+    });
+  }
+});
+
+
 // ==========================================
 // GET - LẤY ALBUM / SẢN PHẨM CỦA MỘT NHÓM
 // GET /api/groups/:id/products
 // ==========================================
-
 router.get('/:id/products', async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!id || isNaN(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID nhóm nhạc không hợp lệ!'
+      });
+    }
 
     // Kiểm tra nhóm tồn tại
     const [groups] = await db.query(
@@ -302,14 +370,9 @@ router.get('/:id/products', async (req, res) => {
         p.created_at,
 
         COUNT(pv.id) AS version_count,
-
         MIN(pv.price) AS min_price,
         MAX(pv.price) AS max_price,
-
-        COALESCE(
-          SUM(pv.stock),
-          0
-        ) AS total_stock,
+        COALESCE(SUM(pv.stock), 0) AS total_stock,
 
         (
           SELECT pv2.image_url
@@ -320,22 +383,10 @@ router.get('/:id/products', async (req, res) => {
         ) AS image_url
 
       FROM products p
-
       LEFT JOIN product_versions pv
         ON p.id = pv.product_id
-
       WHERE p.group_id = ?
-
-      GROUP BY
-        p.id,
-        p.group_id,
-        p.title,
-        p.category,
-        p.is_preorder,
-        p.release_date,
-        p.description,
-        p.created_at
-
+      GROUP BY p.id
       ORDER BY p.id DESC
       `,
       [id]
@@ -348,57 +399,11 @@ router.get('/:id/products', async (req, res) => {
     });
 
   } catch (error) {
-    console.error(
-      'Lỗi lấy sản phẩm của nhóm:',
-      error
-    );
+    console.error('Lỗi lấy sản phẩm của nhóm:', error);
 
     res.status(500).json({
       success: false,
       message: 'Không thể lấy album của nhóm!'
-    });
-  }
-});
-
-// ==========================================
-// GET - LẤY CHI TIẾT NHÓM NHẠC
-// GET /api/groups/:id
-// ==========================================
-
-router.get('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const [rows] = await db.query(
-      `
-      SELECT
-        id,
-        name
-      FROM kpop_groups
-      WHERE id = ?
-      LIMIT 1
-      `,
-      [id]
-    );
-
-    if (rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Không tìm thấy nhóm nhạc!'
-      });
-    }
-
-    res.json({
-      success: true,
-      group: rows[0]
-    });
-
-  } catch (error) {
-    console.error('Lỗi lấy chi tiết nhóm:', error);
-
-    res.status(500).json({
-      success: false,
-      message: 'Không thể lấy thông tin nhóm nhạc!'
     });
   }
 });
