@@ -175,7 +175,7 @@ router.get('/products', async (req, res) => {
 });
 
 // =====================================================
-// POST - TẠO ĐƠN HÀNG MỚI (Mới thêm)
+// POST - TẠO ĐƠN HÀNG MỚI (Đã khắc phục lỗi tạo user & bảng orders)
 // POST /api/orders
 // =====================================================
 
@@ -201,19 +201,41 @@ router.post('/', async (req, res) => {
 
     await connection.beginTransaction();
 
+    // 1. Kiểm tra / Tìm hoặc Tạo mới User dựa vào Số điện thoại
+    let finalUserId = user_id;
+
+    if (!finalUserId) {
+      const [existingUsers] = await connection.query(
+        `SELECT id FROM users WHERE phone = ? LIMIT 1`,
+        [phone]
+      );
+
+      if (existingUsers.length > 0) {
+        finalUserId = existingUsers[0].id;
+      } else {
+        // Nếu chưa tồn tại -> Tạo mới customer trong bảng users
+        const [newUserResult] = await connection.query(
+          `INSERT INTO users (name, phone, role) VALUES (?, ?, 'customer')`,
+          [customer_name, phone]
+        );
+        finalUserId = newUserResult.insertId;
+      }
+    }
+
+    // 2. Tính tổng tiền đơn hàng
     let totalAmount = 0;
     for (const item of items) {
       totalAmount += Number(item.price) * Number(item.quantity);
     }
 
+    // 3. Chèn đơn hàng mới (Bỏ customer_name vì không có trong schema orders)
     const [orderResult] = await connection.query(
       `
-      INSERT INTO orders (user_id, customer_name, phone, address, note, total_amount, status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'PENDING', NOW())
+      INSERT INTO orders (user_id, phone, address, note, total_amount, status, created_at)
+      VALUES (?, ?, ?, ?, ?, 'PENDING', NOW())
     `,
       [
-        user_id || null,
-        customer_name,
+        finalUserId,
         phone,
         address || '',
         note || '',
@@ -223,6 +245,7 @@ router.post('/', async (req, res) => {
 
     const newOrderId = orderResult.insertId;
 
+    // 4. Chèn chi tiết đơn hàng & Trừ tồn kho sản phẩm
     for (const item of items) {
       await connection.query(
         `
@@ -249,6 +272,7 @@ router.post('/', async (req, res) => {
       message: 'Tạo đơn hàng thành công!',
       order: {
         id: newOrderId,
+        user_id: finalUserId,
         customer_name,
         phone,
         address,
@@ -258,10 +282,11 @@ router.post('/', async (req, res) => {
     });
   } catch (error) {
     await connection.rollback();
-    console.error('Lỗi tạo đơn hàng:', error);
+    console.error('Lỗi tạo đơn hàng chi tiết:', error);
     res.status(500).json({
       success: false,
-      message: 'Không thể tạo đơn hàng!'
+      message: 'Không thể tạo đơn hàng!',
+      error: error.message
     });
   } finally {
     connection.release();
