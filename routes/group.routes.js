@@ -11,6 +11,7 @@ const db = require('../db');
 
 router.get('/', async (req, res) => {
   try {
+
     const [rows] = await db.query(`
       SELECT
         id,
@@ -25,12 +26,14 @@ router.get('/', async (req, res) => {
     });
 
   } catch (error) {
+
     console.error('Lỗi lấy nhóm nhạc:', error);
 
     res.status(500).json({
       success: false,
       message: 'Không thể lấy danh sách nhóm nhạc!'
     });
+
   }
 });
 
@@ -42,6 +45,7 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
+
     const { name } = req.body;
 
     if (!name || !name.trim()) {
@@ -53,16 +57,16 @@ router.post('/', async (req, res) => {
 
     const groupName = name.trim();
 
+
     // Kiểm tra trùng tên
-    const [existing] = await db.query(
-      `
-      SELECT id
+    const [existing] = await db.query(`
+      SELECT
+        id
       FROM kpop_groups
       WHERE LOWER(name) = LOWER(?)
       LIMIT 1
-      `,
-      [groupName]
-    );
+    `, [groupName]);
+
 
     if (existing.length > 0) {
       return res.status(400).json({
@@ -71,26 +75,23 @@ router.post('/', async (req, res) => {
       });
     }
 
+
     // Thêm nhóm
-    const [result] = await db.query(
-      `
+    const [result] = await db.query(`
       INSERT INTO kpop_groups (name)
       VALUES (?)
-      `,
-      [groupName]
-    );
+    `, [groupName]);
+
 
     // Lấy lại nhóm vừa thêm
-    const [rows] = await db.query(
-      `
+    const [rows] = await db.query(`
       SELECT
         id,
         name
       FROM kpop_groups
       WHERE id = ?
-      `,
-      [result.insertId]
-    );
+    `, [result.insertId]);
+
 
     res.status(201).json({
       success: true,
@@ -99,12 +100,14 @@ router.post('/', async (req, res) => {
     });
 
   } catch (error) {
+
     console.error('Lỗi thêm nhóm nhạc:', error);
 
     res.status(500).json({
       success: false,
       message: 'Không thể thêm nhóm nhạc!'
     });
+
   }
 });
 
@@ -116,8 +119,10 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
+
     const { id } = req.params;
     const { name } = req.body;
+
 
     if (!id || isNaN(id)) {
       return res.status(400).json({
@@ -126,6 +131,7 @@ router.put('/:id', async (req, res) => {
       });
     }
 
+
     if (!name || !name.trim()) {
       return res.status(400).json({
         success: false,
@@ -133,18 +139,19 @@ router.put('/:id', async (req, res) => {
       });
     }
 
+
     const groupName = name.trim();
 
+
     // Kiểm tra nhóm tồn tại
-    const [existingGroup] = await db.query(
-      `
-      SELECT id
+    const [existingGroup] = await db.query(`
+      SELECT
+        id
       FROM kpop_groups
       WHERE id = ?
       LIMIT 1
-      `,
-      [id]
-    );
+    `, [id]);
+
 
     if (existingGroup.length === 0) {
       return res.status(404).json({
@@ -153,17 +160,17 @@ router.put('/:id', async (req, res) => {
       });
     }
 
+
     // Kiểm tra trùng tên
-    const [duplicate] = await db.query(
-      `
-      SELECT id
+    const [duplicate] = await db.query(`
+      SELECT
+        id
       FROM kpop_groups
       WHERE LOWER(name) = LOWER(?)
         AND id <> ?
       LIMIT 1
-      `,
-      [groupName, id]
-    );
+    `, [groupName, id]);
+
 
     if (duplicate.length > 0) {
       return res.status(400).json({
@@ -172,27 +179,24 @@ router.put('/:id', async (req, res) => {
       });
     }
 
+
     // Cập nhật
-    await db.query(
-      `
+    await db.query(`
       UPDATE kpop_groups
       SET name = ?
       WHERE id = ?
-      `,
-      [groupName, id]
-    );
+    `, [groupName, id]);
+
 
     // Lấy lại dữ liệu
-    const [rows] = await db.query(
-      `
+    const [rows] = await db.query(`
       SELECT
         id,
         name
       FROM kpop_groups
       WHERE id = ?
-      `,
-      [id]
-    );
+    `, [id]);
+
 
     res.json({
       success: true,
@@ -201,12 +205,14 @@ router.put('/:id', async (req, res) => {
     });
 
   } catch (error) {
+
     console.error('Lỗi cập nhật nhóm nhạc:', error);
 
     res.status(500).json({
       success: false,
       message: 'Không thể cập nhật nhóm nhạc!'
     });
+
   }
 });
 
@@ -218,7 +224,9 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
+
     const { id } = req.params;
+
 
     if (!id || isNaN(id)) {
       return res.status(400).json({
@@ -227,16 +235,16 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
+
     // Kiểm tra nhóm tồn tại
-    const [existing] = await db.query(
-      `
-      SELECT id
+    const [existing] = await db.query(`
+      SELECT
+        id
       FROM kpop_groups
       WHERE id = ?
       LIMIT 1
-      `,
-      [id]
-    );
+    `, [id]);
+
 
     if (existing.length === 0) {
       return res.status(404).json({
@@ -245,16 +253,16 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
-    // Kiểm tra nhóm có album hay chưa
-    const [albums] = await db.query(
-      `
-      SELECT id
+
+    // Kiểm tra nhóm có album
+    const [albums] = await db.query(`
+      SELECT
+        id
       FROM albums
       WHERE group_id = ?
       LIMIT 1
-      `,
-      [id]
-    );
+    `, [id]);
+
 
     if (albums.length > 0) {
       return res.status(400).json({
@@ -264,14 +272,13 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
+
     // Xóa nhóm
-    await db.query(
-      `
+    await db.query(`
       DELETE FROM kpop_groups
       WHERE id = ?
-      `,
-      [id]
-    );
+    `, [id]);
+
 
     res.json({
       success: true,
@@ -279,12 +286,14 @@ router.delete('/:id', async (req, res) => {
     });
 
   } catch (error) {
+
     console.error('Lỗi xóa nhóm nhạc:', error);
 
     res.status(500).json({
       success: false,
       message: 'Không thể xóa nhóm nhạc!'
     });
+
   }
 });
 
@@ -296,7 +305,9 @@ router.delete('/:id', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
+
     const { id } = req.params;
+
 
     if (!id || isNaN(id)) {
       return res.status(400).json({
@@ -305,17 +316,16 @@ router.get('/:id', async (req, res) => {
       });
     }
 
-    const [rows] = await db.query(
-      `
+
+    const [rows] = await db.query(`
       SELECT
         id,
         name
       FROM kpop_groups
       WHERE id = ?
       LIMIT 1
-      `,
-      [id]
-    );
+    `, [id]);
+
 
     if (rows.length === 0) {
       return res.status(404).json({
@@ -324,41 +334,52 @@ router.get('/:id', async (req, res) => {
       });
     }
 
+
     res.json({
       success: true,
       group: rows[0]
     });
 
   } catch (error) {
+
     console.error('Lỗi lấy chi tiết nhóm:', error);
 
     res.status(500).json({
       success: false,
       message: 'Không thể lấy thông tin nhóm nhạc!'
     });
+
   }
 });
 
 
 // ======================================================
 // GET - LẤY ALBUM CỦA NHÓM
-// GET /api/groups/:id/products
+// GET /api/groups/:id/albums
+// ======================================================
 //
 // Cấu trúc:
 //
 // kpop_groups
 //      ↓
-// albums
+//    albums
 //      ↓
-// products
+//   products
 //
-// 1 album có nhiều product
+// 1 nhóm có nhiều album
+// 1 album có nhiều version
 // 1 product = 1 version
 // ======================================================
 
-router.get('/:id/products', async (req, res) => {
+router.get('/:id/albums', async (req, res) => {
   try {
+
     const { id } = req.params;
+
+
+    // ==================================================
+    // KIỂM TRA ID
+    // ==================================================
 
     if (!id || isNaN(id)) {
       return res.status(400).json({
@@ -367,21 +388,20 @@ router.get('/:id/products', async (req, res) => {
       });
     }
 
+
     // ==================================================
-    // KIỂM TRA NHÓM
+    // LẤY THÔNG TIN NHÓM
     // ==================================================
 
-    const [groups] = await db.query(
-      `
+    const [groups] = await db.query(`
       SELECT
         id,
         name
       FROM kpop_groups
       WHERE id = ?
       LIMIT 1
-      `,
-      [id]
-    );
+    `, [id]);
+
 
     if (groups.length === 0) {
       return res.status(404).json({
@@ -392,20 +412,18 @@ router.get('/:id/products', async (req, res) => {
 
 
     // ==================================================
-    // LẤY ALBUM CỦA NHÓM
-    //
-    // albums.group_id
-    // products.album_id
+    // LẤY ALBUM
     // ==================================================
 
-    const [albums] = await db.query(
-      `
+    const [albums] = await db.query(`
       SELECT
 
         a.id,
         a.group_id,
         a.name,
+        a.release_date,
         a.description,
+        a.image_url,
         a.created_at,
 
         COUNT(p.id) AS version_count,
@@ -417,17 +435,7 @@ router.get('/:id/products', async (req, res) => {
 
         MIN(p.price) AS min_price,
 
-        MAX(p.price) AS max_price,
-
-        (
-          SELECT p2.image_url
-          FROM products p2
-          WHERE p2.album_id = a.id
-            AND p2.image_url IS NOT NULL
-            AND p2.image_url <> ''
-          ORDER BY p2.id ASC
-          LIMIT 1
-        ) AS image_url
+        MAX(p.price) AS max_price
 
       FROM albums a
 
@@ -440,13 +448,13 @@ router.get('/:id/products', async (req, res) => {
         a.id,
         a.group_id,
         a.name,
+        a.release_date,
         a.description,
+        a.image_url,
         a.created_at
 
       ORDER BY a.id DESC
-      `,
-      [id]
-    );
+    `, [id]);
 
 
     // ==================================================
@@ -455,10 +463,8 @@ router.get('/:id/products', async (req, res) => {
 
     res.json({
       success: true,
-
       group: groups[0],
-
-      albums: albums
+      albums
     });
 
   } catch (error) {
@@ -472,6 +478,7 @@ router.get('/:id/products', async (req, res) => {
       success: false,
       message: 'Không thể lấy album của nhóm!'
     });
+
   }
 });
 

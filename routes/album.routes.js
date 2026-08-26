@@ -4,10 +4,10 @@ const router = express.Router();
 const db = require('../db');
 
 
-// =========================================================
+// =====================================================
 // GET - LẤY TẤT CẢ ALBUM
 // GET /api/albums
-// =========================================================
+// =====================================================
 
 router.get('/', async (req, res) => {
   try {
@@ -23,7 +23,12 @@ router.get('/', async (req, res) => {
 
         g.name AS group_name,
 
-        COUNT(p.id) AS version_count
+        COUNT(p.id) AS version_count,
+
+        COALESCE(SUM(p.stock), 0) AS total_stock,
+
+        MIN(p.price) AS min_price,
+        MAX(p.price) AS max_price
 
       FROM albums a
 
@@ -31,7 +36,7 @@ router.get('/', async (req, res) => {
         ON a.group_id = g.id
 
       LEFT JOIN products p
-        ON p.album_id = a.id
+        ON a.id = p.album_id
 
       GROUP BY
         a.id,
@@ -52,23 +57,26 @@ router.get('/', async (req, res) => {
     });
 
   } catch (error) {
+
     console.error('Lỗi lấy danh sách album:', error);
 
     res.status(500).json({
       success: false,
       message: 'Không thể lấy danh sách album!'
     });
+
   }
 });
 
 
-// =========================================================
+// =====================================================
 // GET - LẤY ALBUM THEO NHÓM
 // GET /api/albums/group/:groupId
-// =========================================================
+// =====================================================
 
 router.get('/group/:groupId', async (req, res) => {
   try {
+
     const { groupId } = req.params;
 
     if (!groupId || isNaN(groupId)) {
@@ -78,21 +86,17 @@ router.get('/group/:groupId', async (req, res) => {
       });
     }
 
-    // -----------------------------------------------------
-    // Kiểm tra nhóm tồn tại
-    // -----------------------------------------------------
 
-    const [groups] = await db.query(
-      `
+    // Kiểm tra nhóm tồn tại
+    const [groups] = await db.query(`
       SELECT
         id,
         name
       FROM kpop_groups
       WHERE id = ?
       LIMIT 1
-      `,
-      [groupId]
-    );
+    `, [groupId]);
+
 
     if (groups.length === 0) {
       return res.status(404).json({
@@ -102,12 +106,8 @@ router.get('/group/:groupId', async (req, res) => {
     }
 
 
-    // -----------------------------------------------------
     // Lấy album của nhóm
-    // -----------------------------------------------------
-
-    const [albums] = await db.query(
-      `
+    const [albums] = await db.query(`
       SELECT
         a.id,
         a.group_id,
@@ -117,12 +117,17 @@ router.get('/group/:groupId', async (req, res) => {
         a.image_url,
         a.created_at,
 
-        COUNT(p.id) AS version_count
+        COUNT(p.id) AS version_count,
+
+        COALESCE(SUM(p.stock), 0) AS total_stock,
+
+        MIN(p.price) AS min_price,
+        MAX(p.price) AS max_price
 
       FROM albums a
 
       LEFT JOIN products p
-        ON p.album_id = a.id
+        ON a.id = p.album_id
 
       WHERE a.group_id = ?
 
@@ -136,9 +141,7 @@ router.get('/group/:groupId', async (req, res) => {
         a.created_at
 
       ORDER BY a.id DESC
-      `,
-      [groupId]
-    );
+    `, [groupId]);
 
 
     res.json({
@@ -155,17 +158,19 @@ router.get('/group/:groupId', async (req, res) => {
       success: false,
       message: 'Không thể lấy album của nhóm!'
     });
+
   }
 });
 
 
-// =========================================================
-// GET - LẤY CHI TIẾT ALBUM
+// =====================================================
+// GET - CHI TIẾT ALBUM
 // GET /api/albums/:id
-// =========================================================
+// =====================================================
 
 router.get('/:id', async (req, res) => {
   try {
+
     const { id } = req.params;
 
     if (!id || isNaN(id)) {
@@ -176,8 +181,8 @@ router.get('/:id', async (req, res) => {
     }
 
 
-    const [albums] = await db.query(
-      `
+    // Lấy thông tin album
+    const [albums] = await db.query(`
       SELECT
         a.id,
         a.group_id,
@@ -197,9 +202,7 @@ router.get('/:id', async (req, res) => {
       WHERE a.id = ?
 
       LIMIT 1
-      `,
-      [id]
-    );
+    `, [id]);
 
 
     if (albums.length === 0) {
@@ -210,12 +213,8 @@ router.get('/:id', async (req, res) => {
     }
 
 
-    // -----------------------------------------------------
-    // Lấy các version/product của album
-    // -----------------------------------------------------
-
-    const [products] = await db.query(
-      `
+    // Lấy các version của album
+    const [products] = await db.query(`
       SELECT
         id,
         album_id,
@@ -234,10 +233,8 @@ router.get('/:id', async (req, res) => {
 
       WHERE album_id = ?
 
-      ORDER BY id DESC
-      `,
-      [id]
-    );
+      ORDER BY id ASC
+    `, [id]);
 
 
     res.json({
@@ -254,14 +251,15 @@ router.get('/:id', async (req, res) => {
       success: false,
       message: 'Không thể lấy thông tin album!'
     });
+
   }
 });
 
 
-// =========================================================
+// =====================================================
 // POST - THÊM ALBUM
 // POST /api/albums
-// =========================================================
+// =====================================================
 
 router.post('/', async (req, res) => {
   try {
@@ -275,22 +273,16 @@ router.post('/', async (req, res) => {
     } = req.body;
 
 
-    // -----------------------------------------------------
-    // Validate group_id
-    // -----------------------------------------------------
-
+    // Kiểm tra group
     if (!group_id || isNaN(group_id)) {
       return res.status(400).json({
         success: false,
-        message: 'ID nhóm nhạc không hợp lệ!'
+        message: 'Vui lòng chọn nhóm nhạc!'
       });
     }
 
 
-    // -----------------------------------------------------
-    // Validate tên album
-    // -----------------------------------------------------
-
+    // Kiểm tra tên album
     if (!name || !name.trim()) {
       return res.status(400).json({
         success: false,
@@ -302,19 +294,13 @@ router.post('/', async (req, res) => {
     const albumName = name.trim();
 
 
-    // -----------------------------------------------------
     // Kiểm tra nhóm tồn tại
-    // -----------------------------------------------------
-
-    const [groups] = await db.query(
-      `
+    const [groups] = await db.query(`
       SELECT id
       FROM kpop_groups
       WHERE id = ?
       LIMIT 1
-      `,
-      [group_id]
-    );
+    `, [group_id]);
 
 
     if (groups.length === 0) {
@@ -325,20 +311,14 @@ router.post('/', async (req, res) => {
     }
 
 
-    // -----------------------------------------------------
     // Kiểm tra album trùng tên trong cùng nhóm
-    // -----------------------------------------------------
-
-    const [existing] = await db.query(
-      `
+    const [existing] = await db.query(`
       SELECT id
       FROM albums
       WHERE group_id = ?
         AND LOWER(name) = LOWER(?)
       LIMIT 1
-      `,
-      [group_id, albumName]
-    );
+    `, [group_id, albumName]);
 
 
     if (existing.length > 0) {
@@ -349,14 +329,9 @@ router.post('/', async (req, res) => {
     }
 
 
-    // -----------------------------------------------------
-    // INSERT
-    // -----------------------------------------------------
-
-    const [result] = await db.query(
-      `
-      INSERT INTO albums
-      (
+    // Thêm album
+    const [result] = await db.query(`
+      INSERT INTO albums (
         group_id,
         name,
         release_date,
@@ -364,23 +339,17 @@ router.post('/', async (req, res) => {
         image_url
       )
       VALUES (?, ?, ?, ?, ?)
-      `,
-      [
-        group_id,
-        albumName,
-        release_date || null,
-        description || null,
-        image_url || null
-      ]
-    );
+    `, [
+      group_id,
+      albumName,
+      release_date || null,
+      description || null,
+      image_url || null
+    ]);
 
 
-    // -----------------------------------------------------
     // Lấy album vừa tạo
-    // -----------------------------------------------------
-
-    const [rows] = await db.query(
-      `
+    const [rows] = await db.query(`
       SELECT
         id,
         group_id,
@@ -389,15 +358,9 @@ router.post('/', async (req, res) => {
         description,
         image_url,
         created_at
-
       FROM albums
-
       WHERE id = ?
-
-      LIMIT 1
-      `,
-      [result.insertId]
-    );
+    `, [result.insertId]);
 
 
     res.status(201).json({
@@ -414,14 +377,15 @@ router.post('/', async (req, res) => {
       success: false,
       message: 'Không thể thêm album!'
     });
+
   }
 });
 
 
-// =========================================================
+// =====================================================
 // PUT - CẬP NHẬT ALBUM
 // PUT /api/albums/:id
-// =========================================================
+// =====================================================
 
 router.put('/:id', async (req, res) => {
   try {
@@ -445,6 +409,14 @@ router.put('/:id', async (req, res) => {
     }
 
 
+    if (!group_id || isNaN(group_id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vui lòng chọn nhóm nhạc!'
+      });
+    }
+
+
     if (!name || !name.trim()) {
       return res.status(400).json({
         success: false,
@@ -456,19 +428,13 @@ router.put('/:id', async (req, res) => {
     const albumName = name.trim();
 
 
-    // -----------------------------------------------------
-    // Kiểm tra album
-    // -----------------------------------------------------
-
-    const [existingAlbum] = await db.query(
-      `
-      SELECT id, group_id
+    // Kiểm tra album tồn tại
+    const [existingAlbum] = await db.query(`
+      SELECT id
       FROM albums
       WHERE id = ?
       LIMIT 1
-      `,
-      [id]
-    );
+    `, [id]);
 
 
     if (existingAlbum.length === 0) {
@@ -479,23 +445,13 @@ router.put('/:id', async (req, res) => {
     }
 
 
-    const finalGroupId =
-      group_id || existingAlbum[0].group_id;
-
-
-    // -----------------------------------------------------
-    // Kiểm tra nhóm
-    // -----------------------------------------------------
-
-    const [groups] = await db.query(
-      `
+    // Kiểm tra nhóm tồn tại
+    const [groups] = await db.query(`
       SELECT id
       FROM kpop_groups
       WHERE id = ?
       LIMIT 1
-      `,
-      [finalGroupId]
-    );
+    `, [group_id]);
 
 
     if (groups.length === 0) {
@@ -506,27 +462,19 @@ router.put('/:id', async (req, res) => {
     }
 
 
-    // -----------------------------------------------------
     // Kiểm tra trùng tên
-    // -----------------------------------------------------
-
-    const [duplicate] = await db.query(
-      `
+    const [duplicate] = await db.query(`
       SELECT id
       FROM albums
-
       WHERE group_id = ?
         AND LOWER(name) = LOWER(?)
         AND id <> ?
-
       LIMIT 1
-      `,
-      [
-        finalGroupId,
-        albumName,
-        id
-      ]
-    );
+    `, [
+      group_id,
+      albumName,
+      id
+    ]);
 
 
     if (duplicate.length > 0) {
@@ -537,12 +485,7 @@ router.put('/:id', async (req, res) => {
     }
 
 
-    // -----------------------------------------------------
-    // UPDATE
-    // -----------------------------------------------------
-
-    await db.query(
-      `
+    await db.query(`
       UPDATE albums
 
       SET
@@ -553,24 +496,17 @@ router.put('/:id', async (req, res) => {
         image_url = ?
 
       WHERE id = ?
-      `,
-      [
-        finalGroupId,
-        albumName,
-        release_date || null,
-        description || null,
-        image_url || null,
-        id
-      ]
-    );
+    `, [
+      group_id,
+      albumName,
+      release_date || null,
+      description || null,
+      image_url || null,
+      id
+    ]);
 
 
-    // -----------------------------------------------------
-    // Lấy lại album
-    // -----------------------------------------------------
-
-    const [rows] = await db.query(
-      `
+    const [rows] = await db.query(`
       SELECT
         id,
         group_id,
@@ -579,15 +515,9 @@ router.put('/:id', async (req, res) => {
         description,
         image_url,
         created_at
-
       FROM albums
-
       WHERE id = ?
-
-      LIMIT 1
-      `,
-      [id]
-    );
+    `, [id]);
 
 
     res.json({
@@ -604,14 +534,15 @@ router.put('/:id', async (req, res) => {
       success: false,
       message: 'Không thể cập nhật album!'
     });
+
   }
 });
 
 
-// =========================================================
+// =====================================================
 // DELETE - XÓA ALBUM
 // DELETE /api/albums/:id
-// =========================================================
+// =====================================================
 
 router.delete('/:id', async (req, res) => {
   try {
@@ -627,24 +558,16 @@ router.delete('/:id', async (req, res) => {
     }
 
 
-    // -----------------------------------------------------
-    // Kiểm tra album
-    // -----------------------------------------------------
-
-    const [albums] = await db.query(
-      `
-      SELECT
-        id,
-        name
+    // Kiểm tra album tồn tại
+    const [existing] = await db.query(`
+      SELECT id
       FROM albums
       WHERE id = ?
       LIMIT 1
-      `,
-      [id]
-    );
+    `, [id]);
 
 
-    if (albums.length === 0) {
+    if (existing.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy album!'
@@ -652,19 +575,13 @@ router.delete('/:id', async (req, res) => {
     }
 
 
-    // -----------------------------------------------------
-    // Kiểm tra album có product/version không
-    // -----------------------------------------------------
-
-    const [products] = await db.query(
-      `
+    // Không cho xóa nếu còn product/version
+    const [products] = await db.query(`
       SELECT id
       FROM products
       WHERE album_id = ?
       LIMIT 1
-      `,
-      [id]
-    );
+    `, [id]);
 
 
     if (products.length > 0) {
@@ -676,17 +593,10 @@ router.delete('/:id', async (req, res) => {
     }
 
 
-    // -----------------------------------------------------
-    // DELETE
-    // -----------------------------------------------------
-
-    await db.query(
-      `
+    await db.query(`
       DELETE FROM albums
       WHERE id = ?
-      `,
-      [id]
-    );
+    `, [id]);
 
 
     res.json({
@@ -702,6 +612,7 @@ router.delete('/:id', async (req, res) => {
       success: false,
       message: 'Không thể xóa album!'
     });
+
   }
 });
 
