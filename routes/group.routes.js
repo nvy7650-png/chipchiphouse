@@ -297,62 +297,6 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-
-// ======================================================
-// GET - LẤY CHI TIẾT NHÓM NHẠC
-// GET /api/groups/:id
-// ======================================================
-
-router.get('/:id', async (req, res) => {
-  try {
-
-    const { id } = req.params;
-
-
-    if (!id || isNaN(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'ID nhóm nhạc không hợp lệ!'
-      });
-    }
-
-
-    const [rows] = await db.query(`
-      SELECT
-        id,
-        name
-      FROM kpop_groups
-      WHERE id = ?
-      LIMIT 1
-    `, [id]);
-
-
-    if (rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Không tìm thấy nhóm nhạc!'
-      });
-    }
-
-
-    res.json({
-      success: true,
-      group: rows[0]
-    });
-
-  } catch (error) {
-
-    console.error('Lỗi lấy chi tiết nhóm:', error);
-
-    res.status(500).json({
-      success: false,
-      message: 'Không thể lấy thông tin nhóm nhạc!'
-    });
-
-  }
-});
-
-
 // ======================================================
 // GET - LẤY ALBUM CỦA NHÓM
 // GET /api/groups/:id/albums
@@ -481,6 +425,63 @@ router.get('/:id/albums', async (req, res) => {
 
   }
 });
+
+// ======================================================
+// GET - LẤY CHI TIẾT NHÓM NHẠC
+// GET /api/groups/:id
+// ======================================================
+
+router.get('/:id', async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+
+    if (!id || isNaN(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID nhóm nhạc không hợp lệ!'
+      });
+    }
+
+
+    const [rows] = await db.query(`
+      SELECT
+        id,
+        name
+      FROM kpop_groups
+      WHERE id = ?
+      LIMIT 1
+    `, [id]);
+
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy nhóm nhạc!'
+      });
+    }
+
+
+    res.json({
+      success: true,
+      group: rows[0]
+    });
+
+  } catch (error) {
+
+    console.error('Lỗi lấy chi tiết nhóm:', error);
+
+    res.status(500).json({
+      success: false,
+      message: 'Không thể lấy thông tin nhóm nhạc!'
+    });
+
+  }
+});
+
+
+
 
 
 module.exports = router;
