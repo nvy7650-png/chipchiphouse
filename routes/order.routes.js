@@ -211,6 +211,44 @@ router.get('/', async (req, res) => {
   }
 });
 
+// =====================================================
+// GET - TÌM KHÁCH HÀNG
+//
+// GET /api/orders/customers
+// =====================================================
+
+router.get('/customers', async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        id,
+        name,
+        email,
+        phone
+      FROM users
+      WHERE role = 'customer'
+      ORDER BY id DESC
+    `);
+
+    res.json({
+      success: true,
+      customers: rows
+    });
+
+  } catch (error) {
+    console.error(
+      'Lỗi lấy khách hàng:',
+      error
+    );
+
+    res.status(500).json({
+      success: false,
+      message: 'Không thể lấy danh sách khách hàng!'
+    });
+  }
+});
+
+
 
 // =====================================================
 // GET - CHI TIẾT ĐƠN HÀNG
