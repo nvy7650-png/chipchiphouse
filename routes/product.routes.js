@@ -52,40 +52,39 @@ const upload = multer({
 
 
 // =====================================================
-// UPLOAD CLOUDINARY
+// UPLOAD ẢNH CLOUDINARY
 // =====================================================
 
 const uploadToCloudinary = (buffer) => {
 
   return new Promise((resolve, reject) => {
 
-    const stream =
-      cloudinary.uploader.upload_stream(
-        {
-          folder: 'chipchip/products',
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'chipchip/products',
 
-          resource_type: 'image',
+        resource_type: 'image',
 
-          transformation: [
-            {
-              width: 1000,
-              height: 1000,
-              crop: 'limit',
-              quality: 'auto',
-              fetch_format: 'auto'
-            }
-          ]
-        },
-
-        (error, result) => {
-
-          if (error) {
-            return reject(error);
+        transformation: [
+          {
+            width: 1000,
+            height: 1000,
+            crop: 'limit',
+            quality: 'auto',
+            fetch_format: 'auto'
           }
+        ]
+      },
 
-          resolve(result);
+      (error, result) => {
+
+        if (error) {
+          return reject(error);
         }
-      );
+
+        resolve(result);
+      }
+    );
 
     stream.end(buffer);
   });
@@ -98,13 +97,13 @@ const uploadToCloudinary = (buffer) => {
 
 const deleteFromCloudinary = async (publicId) => {
 
-  if (!publicId) return;
+  if (!publicId) {
+    return;
+  }
 
   try {
 
-    await cloudinary.uploader.destroy(
-      publicId
-    );
+    await cloudinary.uploader.destroy(publicId);
 
   } catch (error) {
 
@@ -112,16 +111,15 @@ const deleteFromCloudinary = async (publicId) => {
       'Lỗi xóa ảnh Cloudinary:',
       error
     );
-
   }
 };
 
 
 // =====================================================
-// HELPER
+// CATEGORY HỢP LỆ
 // =====================================================
 
-const validCategories = [
+const VALID_CATEGORIES = [
   'album',
   'photocard',
   'md_event',
@@ -130,9 +128,40 @@ const validCategories = [
 
 
 // =====================================================
-// GET - TẤT CẢ SẢN PHẨM
+// HELPER
+// =====================================================
+
+const isValidId = (id) => {
+  return id !== undefined &&
+         id !== null &&
+         id !== '' &&
+         !isNaN(id) &&
+         Number(id) > 0;
+};
+
+
+const getBooleanValue = (value) => {
+
+  return (
+    value === true ||
+    value === 'true' ||
+    value === '1' ||
+    value === 1
+  )
+    ? 1
+    : 0;
+};
+
+
+// =====================================================
+// GET TẤT CẢ SẢN PHẨM
 //
 // GET /api/products
+//
+// Query:
+// ?search=RIIZE
+// ?category=album
+// ?search=RIIZE&category=album
 // =====================================================
 
 router.get('/', async (req, res) => {
@@ -140,12 +169,14 @@ router.get('/', async (req, res) => {
   try {
 
     const {
-      category,
-      search
+      search = '',
+      category = ''
     } = req.query;
+
 
     let sql = `
       SELECT
+
         p.id,
         p.album_id,
         p.title,
@@ -165,20 +196,20 @@ router.get('/', async (req, res) => {
         g.name AS group_name,
 
         COALESCE(
-          SUM(
-            d.quantity * d.import_price
-          ) / NULLIF(SUM(d.quantity), 0),
+          SUM(d.quantity * d.import_price)
+          / NULLIF(SUM(d.quantity), 0),
           0
         ) AS average_import_price,
 
         (
           p.price -
+
           COALESCE(
-            SUM(
-              d.quantity * d.import_price
-            ) / NULLIF(SUM(d.quantity), 0),
+            SUM(d.quantity * d.import_price)
+            / NULLIF(SUM(d.quantity), 0),
             0
           )
+
         ) AS estimated_profit
 
       FROM products p
@@ -199,12 +230,12 @@ router.get('/', async (req, res) => {
 
 
     // =================================================
-    // FILTER CATEGORY
+    // CATEGORY
     // =================================================
 
     if (
       category &&
-      validCategories.includes(category)
+      VALID_CATEGORIES.includes(category)
     ) {
 
       sql += `
@@ -217,21 +248,35 @@ router.get('/', async (req, res) => {
 
     // =================================================
     // SEARCH
+    //
+    // Tìm theo:
+    // - tên sản phẩm
+    // - version
+    // - album
+    // - nhóm
     // =================================================
 
     if (search && search.trim()) {
 
+      const keyword = `%${search.trim()}%`;
+
       sql += `
         AND (
           LOWER(p.title) LIKE LOWER(?)
-          OR LOWER(p.version_name) LIKE LOWER(?)
-          OR LOWER(a.name) LIKE LOWER(?)
-          OR LOWER(g.name) LIKE LOWER(?)
+
+          OR LOWER(
+            COALESCE(p.version_name, '')
+          ) LIKE LOWER(?)
+
+          OR LOWER(
+            COALESCE(a.name, '')
+          ) LIKE LOWER(?)
+
+          OR LOWER(
+            COALESCE(g.name, '')
+          ) LIKE LOWER(?)
         )
       `;
-
-      const keyword =
-        `%${search.trim()}%`;
 
       params.push(
         keyword,
@@ -242,9 +287,14 @@ router.get('/', async (req, res) => {
     }
 
 
+    // =================================================
+    // GROUP
+    // =================================================
+
     sql += `
 
       GROUP BY
+
         p.id,
         p.album_id,
         p.title,
@@ -259,6 +309,7 @@ router.get('/', async (req, res) => {
         p.created_at,
 
         a.name,
+
         g.id,
         g.name
 
@@ -266,13 +317,45 @@ router.get('/', async (req, res) => {
     `;
 
 
-    const [rows] =
-      await db.query(sql, params);
+    const [rows] = await db.query(
+      sql,
+      params
+    );
+
+
+    // Convert số cho frontend
+    const products = rows.map((product) => ({
+      ...product,
+
+      id: Number(product.id),
+
+      album_id:
+        product.album_id !== null
+          ? Number(product.album_id)
+          : null,
+
+      price: Number(product.price || 0),
+
+      stock: Number(product.stock || 0),
+
+      average_import_price:
+        Number(
+          product.average_import_price || 0
+        ),
+
+      estimated_profit:
+        Number(
+          product.estimated_profit || 0
+        ),
+
+      is_preorder:
+        Number(product.is_preorder || 0)
+    }));
 
 
     res.json({
       success: true,
-      products: rows
+      products
     });
 
   } catch (error) {
@@ -292,13 +375,16 @@ router.get('/', async (req, res) => {
 
 
 // =====================================================
-// GET - LẤY ALBUM ĐỂ CHỌN
+// GET ALBUM
+//
+// QUAN TRỌNG:
+// Route này phải nằm TRƯỚC /:id
 //
 // GET /api/products/albums
 //
-// Có hỗ trợ tìm kiếm:
+// Có tìm kiếm:
 //
-// GET /api/products/albums?search=RIIZE
+// /api/products/albums?search=RIIZE
 // =====================================================
 
 router.get('/albums', async (req, res) => {
@@ -306,14 +392,18 @@ router.get('/albums', async (req, res) => {
   try {
 
     const {
-      search
+      search = ''
     } = req.query;
 
+
     let sql = `
+
       SELECT
+
         a.id,
         a.name,
         a.group_id,
+
         g.name AS group_name
 
       FROM albums a
@@ -322,6 +412,7 @@ router.get('/albums', async (req, res) => {
         ON a.group_id = g.id
 
       WHERE 1 = 1
+
     `;
 
     const params = [];
@@ -329,15 +420,24 @@ router.get('/albums', async (req, res) => {
 
     if (search && search.trim()) {
 
-      sql += `
-        AND (
-          LOWER(a.name) LIKE LOWER(?)
-          OR LOWER(g.name) LIKE LOWER(?)
-        )
-      `;
-
       const keyword =
         `%${search.trim()}%`;
+
+      sql += `
+
+        AND (
+
+          LOWER(a.name)
+            LIKE LOWER(?)
+
+          OR LOWER(
+            COALESCE(g.name, '')
+          )
+            LIKE LOWER(?)
+
+        )
+
+      `;
 
       params.push(
         keyword,
@@ -347,9 +447,13 @@ router.get('/albums', async (req, res) => {
 
 
     sql += `
+
       ORDER BY
+
         g.name ASC,
+
         a.name ASC
+
     `;
 
 
@@ -360,9 +464,21 @@ router.get('/albums', async (req, res) => {
       );
 
 
+    const albums = rows.map((album) => ({
+      ...album,
+
+      id: Number(album.id),
+
+      group_id:
+        album.group_id !== null
+          ? Number(album.group_id)
+          : null
+    }));
+
+
     res.json({
       success: true,
-      albums: rows
+      albums
     });
 
   } catch (error) {
@@ -382,7 +498,7 @@ router.get('/albums', async (req, res) => {
 
 
 // =====================================================
-// GET - CHI TIẾT SẢN PHẨM
+// GET CHI TIẾT SẢN PHẨM
 //
 // GET /api/products/:id
 // =====================================================
@@ -396,10 +512,7 @@ router.get('/:id', async (req, res) => {
     } = req.params;
 
 
-    if (
-      !id ||
-      isNaN(id)
-    ) {
+    if (!isValidId(id)) {
 
       return res.status(400).json({
         success: false,
@@ -447,9 +560,7 @@ router.get('/:id', async (req, res) => {
       `, [id]);
 
 
-    if (
-      products.length === 0
-    ) {
+    if (products.length === 0) {
 
       return res.status(404).json({
         success: false,
@@ -491,49 +602,54 @@ router.get('/:id', async (req, res) => {
       `, [id]);
 
 
-    const product =
-      products[0];
+    const product = products[0];
 
 
     const averageImportPrice =
       Number(
-        costRows[0]
-          ?.average_import_price || 0
+        costRows[0]?.average_import_price || 0
       );
 
 
-    const estimatedProfit =
-      Number(product.price) -
-      averageImportPrice;
+    const result = {
+
+      ...product,
+
+      id: Number(product.id),
+
+      album_id:
+        product.album_id !== null
+          ? Number(product.album_id)
+          : null,
+
+      price:
+        Number(product.price || 0),
+
+      stock:
+        Number(product.stock || 0),
+
+      average_import_price:
+        averageImportPrice,
+
+      estimated_profit:
+        Number(product.price || 0) -
+        averageImportPrice,
+
+      total_import_quantity:
+        Number(
+          costRows[0]?.total_import_quantity || 0
+        ),
+
+      total_import_cost:
+        Number(
+          costRows[0]?.total_import_cost || 0
+        )
+    };
 
 
     res.json({
-
       success: true,
-
-      product: {
-
-        ...product,
-
-        average_import_price:
-          averageImportPrice,
-
-        estimated_profit:
-          estimatedProfit,
-
-        total_import_quantity:
-          Number(
-            costRows[0]
-              ?.total_import_quantity || 0
-          ),
-
-        total_import_cost:
-          Number(
-            costRows[0]
-              ?.total_import_cost || 0
-          )
-      }
-
+      product: result
     });
 
   } catch (error) {
@@ -553,7 +669,7 @@ router.get('/:id', async (req, res) => {
 
 
 // =====================================================
-// POST - THÊM SẢN PHẨM
+// POST THÊM SẢN PHẨM
 //
 // POST /api/products
 //
@@ -585,11 +701,11 @@ router.post(
 
 
       // =================================================
-      // VALIDATE CATEGORY
+      // CATEGORY
       // =================================================
 
       if (
-        !validCategories.includes(
+        !VALID_CATEGORIES.includes(
           productCategory
         )
       ) {
@@ -603,7 +719,7 @@ router.post(
 
 
       // =================================================
-      // VALIDATE TITLE
+      // TITLE
       // =================================================
 
       if (
@@ -620,16 +736,28 @@ router.post(
 
 
       // =================================================
-      // VALIDATE PRICE
+      // PRICE
       // =================================================
+
+      if (
+        price === undefined ||
+        price === null ||
+        price === ''
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message:
+            'Giá bán không được để trống!'
+        });
+      }
+
 
       const productPrice =
         Number(price);
 
 
       if (
-        price === undefined ||
-        price === '' ||
         isNaN(productPrice) ||
         productPrice < 0
       ) {
@@ -643,28 +771,25 @@ router.post(
 
 
       // =================================================
-      // XỬ LÝ ALBUM + VERSION
-      // =================================================
-
-      let finalAlbumId = null;
-      let finalVersionName = null;
-
-
-      // =================================================
-      // NẾU LÀ ALBUM
+      // ALBUM PRODUCT
+      //
+      // category = album
       //
       // BẮT BUỘC:
       // - album_id
       // - version_name
       // =================================================
 
+      let finalAlbumId = null;
+      let finalVersionName = null;
+
+
       if (
         productCategory === 'album'
       ) {
 
         if (
-          !album_id ||
-          isNaN(album_id)
+          !isValidId(album_id)
         ) {
 
           return res.status(400).json({
@@ -691,11 +816,15 @@ router.post(
         finalAlbumId =
           Number(album_id);
 
+
         finalVersionName =
           version_name.trim();
 
 
-        // Kiểm tra album
+        // =================================================
+        // KIỂM TRA ALBUM
+        // =================================================
+
         const [albums] =
           await db.query(`
 
@@ -707,12 +836,12 @@ router.post(
 
             LIMIT 1
 
-          `, [finalAlbumId]);
+          `, [
+            finalAlbumId
+          ]);
 
 
-        if (
-          albums.length === 0
-        ) {
+        if (albums.length === 0) {
 
           return res.status(404).json({
             success: false,
@@ -722,8 +851,11 @@ router.post(
         }
 
 
-        // Kiểm tra version trùng
-        const [existing] =
+        // =================================================
+        // KIỂM TRA VERSION TRÙNG
+        // =================================================
+
+        const [duplicate] =
           await db.query(`
 
             SELECT id
@@ -732,8 +864,11 @@ router.post(
 
             WHERE album_id = ?
 
-              AND LOWER(version_name)
-                  = LOWER(?)
+              AND LOWER(
+                COALESCE(version_name, '')
+              )
+              =
+              LOWER(?)
 
             LIMIT 1
 
@@ -743,9 +878,7 @@ router.post(
           ]);
 
 
-        if (
-          existing.length > 0
-        ) {
+        if (duplicate.length > 0) {
 
           return res.status(400).json({
             success: false,
@@ -759,9 +892,9 @@ router.post(
       // =================================================
       // PHOTOCARD / MD EVENT / LIGHTSTICK
       //
-      // KHÔNG CẦN:
-      // - album_id
-      // - version_name
+      // KHÔNG CÓ VERSION
+      //
+      // KHÔNG BẮT BUỘC ALBUM
       // =================================================
 
       if (
@@ -769,6 +902,7 @@ router.post(
       ) {
 
         finalAlbumId = null;
+
         finalVersionName = null;
       }
 
@@ -779,6 +913,9 @@ router.post(
 
       let imageUrl = null;
 
+      let imagePublicId = null;
+
+
       if (req.file) {
 
         const uploaded =
@@ -788,6 +925,9 @@ router.post(
 
         imageUrl =
           uploaded.secure_url;
+
+        imagePublicId =
+          uploaded.public_id;
       }
 
 
@@ -814,7 +954,18 @@ router.post(
           )
 
           VALUES (
-            ?, ?, ?, ?, 0, ?, ?, ?, ?, ?
+
+            ?,
+            ?,
+            ?,
+            ?,
+            0,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?
+
           )
 
         `, [
@@ -831,12 +982,7 @@ router.post(
 
           productCategory,
 
-          (
-            is_preorder === 'true' ||
-            is_preorder === '1'
-          )
-            ? 1
-            : 0,
+          getBooleanValue(is_preorder),
 
           release_date || null,
 
@@ -847,7 +993,7 @@ router.post(
 
 
       // =================================================
-      // LẤY LẠI
+      // LẤY SẢN PHẨM VỪA TẠO
       // =================================================
 
       const [rows] =
@@ -858,6 +1004,8 @@ router.post(
             p.*,
 
             a.name AS album_name,
+
+            g.id AS group_id,
 
             g.name AS group_name
 
@@ -871,6 +1019,8 @@ router.post(
 
           WHERE p.id = ?
 
+          LIMIT 1
+
         `, [
           result.insertId
         ]);
@@ -883,8 +1033,24 @@ router.post(
         message:
           'Thêm sản phẩm thành công!',
 
-        product:
-          rows[0]
+        product: {
+
+          ...rows[0],
+
+          id:
+            Number(rows[0].id),
+
+          album_id:
+            rows[0].album_id !== null
+              ? Number(rows[0].album_id)
+              : null,
+
+          price:
+            Number(rows[0].price || 0),
+
+          stock:
+            Number(rows[0].stock || 0)
+        }
 
       });
 
@@ -907,9 +1073,11 @@ router.post(
 
 
 // =====================================================
-// PUT - CẬP NHẬT SẢN PHẨM
+// PUT CẬP NHẬT SẢN PHẨM
 //
 // PUT /api/products/:id
+//
+// multipart/form-data
 // =====================================================
 
 router.put(
@@ -925,10 +1093,7 @@ router.put(
       } = req.params;
 
 
-      if (
-        !id ||
-        isNaN(id)
-      ) {
+      if (!isValidId(id)) {
 
         return res.status(400).json({
           success: false,
@@ -955,11 +1120,11 @@ router.put(
 
 
       // =================================================
-      // VALIDATE CATEGORY
+      // CATEGORY
       // =================================================
 
       if (
-        !validCategories.includes(
+        !VALID_CATEGORIES.includes(
           productCategory
         )
       ) {
@@ -973,7 +1138,7 @@ router.put(
 
 
       // =================================================
-      // VALIDATE TITLE
+      // TITLE
       // =================================================
 
       if (
@@ -990,16 +1155,28 @@ router.put(
 
 
       // =================================================
-      // VALIDATE PRICE
+      // PRICE
       // =================================================
+
+      if (
+        price === undefined ||
+        price === null ||
+        price === ''
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message:
+            'Giá bán không được để trống!'
+        });
+      }
+
 
       const productPrice =
         Number(price);
 
 
       if (
-        price === undefined ||
-        price === '' ||
         isNaN(productPrice) ||
         productPrice < 0
       ) {
@@ -1036,9 +1213,7 @@ router.put(
         `, [id]);
 
 
-      if (
-        products.length === 0
-      ) {
+      if (products.length === 0) {
 
         return res.status(404).json({
           success: false,
@@ -1048,8 +1223,12 @@ router.put(
       }
 
 
+      const oldProduct =
+        products[0];
+
+
       // =================================================
-      // ALBUM PRODUCT
+      // XỬ LÝ ALBUM
       // =================================================
 
       let finalAlbumId = null;
@@ -1061,8 +1240,7 @@ router.put(
       ) {
 
         if (
-          !album_id ||
-          isNaN(album_id)
+          !isValidId(album_id)
         ) {
 
           return res.status(400).json({
@@ -1089,11 +1267,15 @@ router.put(
         finalAlbumId =
           Number(album_id);
 
+
         finalVersionName =
           version_name.trim();
 
 
-        // Kiểm tra album
+        // =================================================
+        // KIỂM TRA ALBUM
+        // =================================================
+
         const [albums] =
           await db.query(`
 
@@ -1110,9 +1292,7 @@ router.put(
           ]);
 
 
-        if (
-          albums.length === 0
-        ) {
+        if (albums.length === 0) {
 
           return res.status(404).json({
             success: false,
@@ -1122,7 +1302,10 @@ router.put(
         }
 
 
-        // Kiểm tra version trùng
+        // =================================================
+        // KIỂM TRA VERSION TRÙNG
+        // =================================================
+
         const [duplicate] =
           await db.query(`
 
@@ -1132,8 +1315,11 @@ router.put(
 
             WHERE album_id = ?
 
-              AND LOWER(version_name)
-                  = LOWER(?)
+              AND LOWER(
+                COALESCE(version_name, '')
+              )
+              =
+              LOWER(?)
 
               AND id <> ?
 
@@ -1146,9 +1332,7 @@ router.put(
           ]);
 
 
-        if (
-          duplicate.length > 0
-        ) {
+        if (duplicate.length > 0) {
 
           return res.status(400).json({
             success: false,
@@ -1160,7 +1344,7 @@ router.put(
 
 
       // =================================================
-      // SẢN PHẨM ĐỘC LẬP
+      // PHOTOCARD / MD EVENT / LIGHTSTICK
       // =================================================
 
       if (
@@ -1168,6 +1352,7 @@ router.put(
       ) {
 
         finalAlbumId = null;
+
         finalVersionName = null;
       }
 
@@ -1177,7 +1362,10 @@ router.put(
       // =================================================
 
       let imageUrl =
-        products[0].image_url;
+        oldProduct.image_url;
+
+
+      let newPublicId = null;
 
 
       if (req.file) {
@@ -1189,11 +1377,19 @@ router.put(
 
         imageUrl =
           uploaded.secure_url;
+
+        newPublicId =
+          uploaded.public_id;
       }
 
 
       // =================================================
       // UPDATE
+      //
+      // KHÔNG UPDATE STOCK
+      //
+      // STOCK phải được quản lý thông qua
+      // nhập hàng / xuất hàng.
       // =================================================
 
       await db.query(`
@@ -1203,13 +1399,21 @@ router.put(
         SET
 
           album_id = ?,
+
           title = ?,
+
           version_name = ?,
+
           price = ?,
+
           image_url = ?,
+
           category = ?,
+
           is_preorder = ?,
+
           release_date = ?,
+
           description = ?
 
         WHERE id = ?
@@ -1228,12 +1432,7 @@ router.put(
 
         productCategory,
 
-        (
-          is_preorder === 'true' ||
-          is_preorder === '1'
-        )
-          ? 1
-          : 0,
+        getBooleanValue(is_preorder),
 
         release_date || null,
 
@@ -1247,7 +1446,47 @@ router.put(
 
 
       // =================================================
-      // LẤY LẠI
+      // NẾU UPLOAD ẢNH MỚI
+      // XÓA ẢNH CŨ
+      //
+      // Chỉ thực hiện nếu DB đã update thành công.
+      // =================================================
+
+      if (
+        req.file &&
+        oldProduct.image_url &&
+        newPublicId
+      ) {
+
+        try {
+
+          const oldUrl =
+            oldProduct.image_url;
+
+          const match =
+            oldUrl.match(
+              /\/upload\/(?:v\d+\/)?(.+)\.[^.]+$/
+            );
+
+          if (match && match[1]) {
+
+            await deleteFromCloudinary(
+              match[1]
+            );
+          }
+
+        } catch (error) {
+
+          console.error(
+            'Không thể xóa ảnh cũ:',
+            error
+          );
+        }
+      }
+
+
+      // =================================================
+      // LẤY LẠI PRODUCT
       // =================================================
 
       const [rows] =
@@ -1258,6 +1497,8 @@ router.put(
             p.*,
 
             a.name AS album_name,
+
+            g.id AS group_id,
 
             g.name AS group_name
 
@@ -1271,6 +1512,8 @@ router.put(
 
           WHERE p.id = ?
 
+          LIMIT 1
+
         `, [id]);
 
 
@@ -1281,8 +1524,24 @@ router.put(
         message:
           'Cập nhật sản phẩm thành công!',
 
-        product:
-          rows[0]
+        product: {
+
+          ...rows[0],
+
+          id:
+            Number(rows[0].id),
+
+          album_id:
+            rows[0].album_id !== null
+              ? Number(rows[0].album_id)
+              : null,
+
+          price:
+            Number(rows[0].price || 0),
+
+          stock:
+            Number(rows[0].stock || 0)
+        }
 
       });
 
@@ -1305,7 +1564,7 @@ router.put(
 
 
 // =====================================================
-// DELETE - XÓA SẢN PHẨM
+// DELETE XÓA SẢN PHẨM
 //
 // DELETE /api/products/:id
 // =====================================================
@@ -1319,10 +1578,7 @@ router.delete('/:id', async (req, res) => {
     } = req.params;
 
 
-    if (
-      !id ||
-      isNaN(id)
-    ) {
+    if (!isValidId(id)) {
 
       return res.status(400).json({
         success: false,
@@ -1333,7 +1589,7 @@ router.delete('/:id', async (req, res) => {
 
 
     // =================================================
-    // KIỂM TRA PRODUCT
+    // LẤY PRODUCT
     // =================================================
 
     const [products] =
@@ -1354,9 +1610,7 @@ router.delete('/:id', async (req, res) => {
       `, [id]);
 
 
-    if (
-      products.length === 0
-    ) {
+    if (products.length === 0) {
 
       return res.status(404).json({
         success: false,
@@ -1366,12 +1620,16 @@ router.delete('/:id', async (req, res) => {
     }
 
 
+    const product =
+      products[0];
+
+
     // =================================================
     // KHÔNG CHO XÓA NẾU CÒN STOCK
     // =================================================
 
     if (
-      Number(products[0].stock) > 0
+      Number(product.stock || 0) > 0
     ) {
 
       return res.status(400).json({
@@ -1389,7 +1647,9 @@ router.delete('/:id', async (req, res) => {
     const [imports] =
       await db.query(`
 
-        SELECT id
+        SELECT
+
+          id
 
         FROM import_details
 
@@ -1400,9 +1660,7 @@ router.delete('/:id', async (req, res) => {
       `, [id]);
 
 
-    if (
-      imports.length > 0
-    ) {
+    if (imports.length > 0) {
 
       return res.status(400).json({
         success: false,
@@ -1413,7 +1671,7 @@ router.delete('/:id', async (req, res) => {
 
 
     // =================================================
-    // XÓA DATABASE
+    // XÓA PRODUCT
     // =================================================
 
     await db.query(`
@@ -1423,6 +1681,38 @@ router.delete('/:id', async (req, res) => {
       WHERE id = ?
 
     `, [id]);
+
+
+    // =================================================
+    // XÓA ẢNH CLOUDINARY
+    //
+    // Thử lấy public_id từ URL.
+    // =================================================
+
+    if (product.image_url) {
+
+      try {
+
+        const match =
+          product.image_url.match(
+            /\/upload\/(?:v\d+\/)?(.+)\.[^.]+$/
+          );
+
+        if (match && match[1]) {
+
+          await deleteFromCloudinary(
+            match[1]
+          );
+        }
+
+      } catch (error) {
+
+        console.error(
+          'Lỗi xóa ảnh Cloudinary:',
+          error
+        );
+      }
+    }
 
 
     res.json({
@@ -1440,6 +1730,23 @@ router.delete('/:id', async (req, res) => {
       'Lỗi xóa sản phẩm:',
       error
     );
+
+    // =================================================
+    // FOREIGN KEY
+    // =================================================
+
+    if (
+      error.code === 'ER_ROW_IS_REFERENCED_2' ||
+      error.code === 'ER_ROW_IS_REFERENCED'
+    ) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          'Không thể xóa sản phẩm vì sản phẩm đang được sử dụng ở dữ liệu khác!'
+      });
+    }
+
 
     res.status(500).json({
       success: false,
@@ -1461,10 +1768,23 @@ router.use(
       error instanceof multer.MulterError
     ) {
 
+      if (
+        error.code === 'LIMIT_FILE_SIZE'
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message:
+            'Ảnh không được vượt quá 5MB!'
+        });
+      }
+
+
       return res.status(400).json({
         success: false,
         message:
-          'Ảnh không được vượt quá 5MB!'
+          error.message ||
+          'Lỗi upload ảnh!'
       });
     }
 
@@ -1484,5 +1804,9 @@ router.use(
   }
 );
 
+
+// =====================================================
+// EXPORT
+// =====================================================
 
 module.exports = router;
