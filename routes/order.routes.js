@@ -911,6 +911,57 @@ router.put(
   }
 );
 
+// =====================================================
+// GET - LẤY SẢN PHẨM CHO TẠO ĐƠN HÀNG
+// GET /api/orders/products
+// =====================================================
+
+router.get('/products', async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        p.id,
+        p.title,
+        p.version_name,
+        p.price,
+        p.stock,
+        p.image_url,
+        p.category,
+
+        a.name AS album_name,
+
+        g.name AS group_name
+
+      FROM products p
+
+      LEFT JOIN albums a
+        ON p.album_id = a.id
+
+      LEFT JOIN kpop_groups g
+        ON a.group_id = g.id
+
+      WHERE p.stock > 0
+
+      ORDER BY p.title ASC
+    `);
+
+    res.json({
+      success: true,
+      products: rows
+    });
+
+  } catch (error) {
+    console.error(
+      'Lỗi lấy sản phẩm cho đơn hàng:',
+      error
+    );
+
+    res.status(500).json({
+      success: false,
+      message: 'Không thể lấy danh sách sản phẩm!'
+    });
+  }
+});
 
 // =====================================================
 // DELETE - XÓA ĐƠN HÀNG
