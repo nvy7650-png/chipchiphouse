@@ -1,7 +1,122 @@
 const express = require('express');
 const router = express.Router();
 
+const multer = require('multer');
+const cloudinary = require('../config/cloudinary');
+
 const db = require('../db');
+
+
+// =====================================================
+// MULTER
+// Nhận ảnh từ thiết bị
+// =====================================================
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+
+  limits: {
+    fileSize: 5 * 1024 * 1024 // tối đa 5MB
+  },
+
+  fileFilter: (req, file, cb) => {
+
+    if (!file.mimetype.startsWith('image/')) {
+      return cb(
+        new Error('Chỉ được upload file hình ảnh!')
+      );
+    }
+
+    cb(null, true);
+  }
+});
+
+
+// =====================================================
+// HELPER - UPLOAD ẢNH CLOUDINARY
+// =====================================================
+
+const uploadToCloudinary = (file) => {
+
+  return new Promise((resolve, reject) => {
+
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'chipchiphouse/albums',
+        resource_type: 'image'
+      },
+
+      (error, result) => {
+
+        if (error) {
+          reject(error);
+        } else {
+          resolve(result);
+        }
+
+      }
+    );
+
+    stream.end(file.buffer);
+
+  });
+
+};
+
+
+// =====================================================
+// HELPER - XÓA ẢNH CLOUDINARY
+// =====================================================
+
+const deleteFromCloudinary = async (imageUrl) => {
+
+  if (!imageUrl) {
+    return;
+  }
+
+  try {
+
+    // Lấy public_id từ URL Cloudinary
+    const uploadIndex = imageUrl.indexOf('/upload/');
+
+    if (uploadIndex === -1) {
+      return;
+    }
+
+    let publicId = imageUrl.substring(
+      uploadIndex + '/upload/'.length
+    );
+
+    // Bỏ version v123456...
+    publicId = publicId.replace(
+      /^v\d+\//,
+      ''
+    );
+
+    // Bỏ phần extension
+    publicId = publicId.replace(
+      /\.[^/.]+$/,
+      ''
+    );
+
+    await cloudinary.uploader.destroy(
+      publicId,
+      {
+        resource_type: 'image'
+      }
+    );
+
+  } catch (error) {
+
+    console.error(
+      'Lỗi xóa ảnh Cloudinary:',
+      error
+    );
+
+    // Không làm fail request chính
+  }
+
+};
 
 
 // =====================================================
@@ -10,9 +125,12 @@ const db = require('../db');
 // =====================================================
 
 router.get('/', async (req, res) => {
+
   try {
+
     const [rows] = await db.query(`
       SELECT
+
         a.id,
         a.group_id,
         a.name,
@@ -25,9 +143,13 @@ router.get('/', async (req, res) => {
 
         COUNT(p.id) AS version_count,
 
-        COALESCE(SUM(p.stock), 0) AS total_stock,
+        COALESCE(
+          SUM(p.stock),
+          0
+        ) AS total_stock,
 
         MIN(p.price) AS min_price,
+
         MAX(p.price) AS max_price
 
       FROM albums a
@@ -39,6 +161,7 @@ router.get('/', async (req, res) => {
         ON a.id = p.album_id
 
       GROUP BY
+
         a.id,
         a.group_id,
         a.name,
@@ -58,7 +181,10 @@ router.get('/', async (req, res) => {
 
   } catch (error) {
 
-    console.error('Lỗi lấy danh sách album:', error);
+    console.error(
+      'Lỗi lấy danh sách album:',
+      error
+    );
 
     res.status(500).json({
       success: false,
@@ -66,6 +192,7 @@ router.get('/', async (req, res) => {
     });
 
   }
+
 });
 
 
@@ -75,40 +202,51 @@ router.get('/', async (req, res) => {
 // =====================================================
 
 router.get('/group/:groupId', async (req, res) => {
+
   try {
 
     const { groupId } = req.params;
 
     if (!groupId || isNaN(groupId)) {
+
       return res.status(400).json({
         success: false,
         message: 'ID nhóm nhạc không hợp lệ!'
       });
+
     }
 
 
-    // Kiểm tra nhóm tồn tại
+    // Kiểm tra nhóm
+
     const [groups] = await db.query(`
       SELECT
         id,
         name
+
       FROM kpop_groups
+
       WHERE id = ?
+
       LIMIT 1
     `, [groupId]);
 
 
     if (groups.length === 0) {
+
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy nhóm nhạc!'
       });
+
     }
 
 
-    // Lấy album của nhóm
+    // Lấy album
+
     const [albums] = await db.query(`
       SELECT
+
         a.id,
         a.group_id,
         a.name,
@@ -119,9 +257,13 @@ router.get('/group/:groupId', async (req, res) => {
 
         COUNT(p.id) AS version_count,
 
-        COALESCE(SUM(p.stock), 0) AS total_stock,
+        COALESCE(
+          SUM(p.stock),
+          0
+        ) AS total_stock,
 
         MIN(p.price) AS min_price,
+
         MAX(p.price) AS max_price
 
       FROM albums a
@@ -132,6 +274,7 @@ router.get('/group/:groupId', async (req, res) => {
       WHERE a.group_id = ?
 
       GROUP BY
+
         a.id,
         a.group_id,
         a.name,
@@ -152,7 +295,10 @@ router.get('/group/:groupId', async (req, res) => {
 
   } catch (error) {
 
-    console.error('Lỗi lấy album của nhóm:', error);
+    console.error(
+      'Lỗi lấy album của nhóm:',
+      error
+    );
 
     res.status(500).json({
       success: false,
@@ -160,6 +306,7 @@ router.get('/group/:groupId', async (req, res) => {
     });
 
   }
+
 });
 
 
@@ -169,21 +316,28 @@ router.get('/group/:groupId', async (req, res) => {
 // =====================================================
 
 router.get('/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
 
     if (!id || isNaN(id)) {
+
       return res.status(400).json({
         success: false,
         message: 'ID album không hợp lệ!'
       });
+
     }
 
 
-    // Lấy thông tin album
+    // =================================================
+    // LẤY ALBUM
+    // =================================================
+
     const [albums] = await db.query(`
       SELECT
+
         a.id,
         a.group_id,
         a.name,
@@ -206,16 +360,22 @@ router.get('/:id', async (req, res) => {
 
 
     if (albums.length === 0) {
+
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy album!'
       });
+
     }
 
 
-    // Lấy các version của album
+    // =================================================
+    // LẤY CÁC VERSION
+    // =================================================
+
     const [products] = await db.query(`
       SELECT
+
         id,
         album_id,
         title,
@@ -245,7 +405,10 @@ router.get('/:id', async (req, res) => {
 
   } catch (error) {
 
-    console.error('Lỗi lấy chi tiết album:', error);
+    console.error(
+      'Lỗi lấy chi tiết album:',
+      error
+    );
 
     res.status(500).json({
       success: false,
@@ -253,290 +416,495 @@ router.get('/:id', async (req, res) => {
     });
 
   }
+
 });
 
 
 // =====================================================
 // POST - THÊM ALBUM
 // POST /api/albums
+//
+// multipart/form-data
+//
+// Fields:
+// group_id
+// name
+// release_date
+// description
+// image
 // =====================================================
 
-router.post('/', async (req, res) => {
-  try {
+router.post(
+  '/',
+  upload.single('image'),
+  async (req, res) => {
 
-    const {
-      group_id,
-      name,
-      release_date,
-      description,
-      image_url
-    } = req.body;
+    try {
 
-
-    // Kiểm tra group
-    if (!group_id || isNaN(group_id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Vui lòng chọn nhóm nhạc!'
-      });
-    }
+      const {
+        group_id,
+        name,
+        release_date,
+        description
+      } = req.body;
 
 
-    // Kiểm tra tên album
-    if (!name || !name.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tên album không được để trống!'
-      });
-    }
+      // =================================================
+      // VALIDATE
+      // =================================================
+
+      if (!group_id || isNaN(group_id)) {
+
+        return res.status(400).json({
+          success: false,
+          message: 'Vui lòng chọn nhóm nhạc!'
+        });
+
+      }
 
 
-    const albumName = name.trim();
+      if (!name || !name.trim()) {
+
+        return res.status(400).json({
+          success: false,
+          message: 'Tên album không được để trống!'
+        });
+
+      }
 
 
-    // Kiểm tra nhóm tồn tại
-    const [groups] = await db.query(`
-      SELECT id
-      FROM kpop_groups
-      WHERE id = ?
-      LIMIT 1
-    `, [group_id]);
+      const albumName = name.trim();
 
 
-    if (groups.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Không tìm thấy nhóm nhạc!'
-      });
-    }
+      // =================================================
+      // KIỂM TRA GROUP
+      // =================================================
+
+      const [groups] = await db.query(`
+        SELECT
+          id
+
+        FROM kpop_groups
+
+        WHERE id = ?
+
+        LIMIT 1
+      `, [group_id]);
 
 
-    // Kiểm tra album trùng tên trong cùng nhóm
-    const [existing] = await db.query(`
-      SELECT id
-      FROM albums
-      WHERE group_id = ?
+      if (groups.length === 0) {
+
+        return res.status(404).json({
+          success: false,
+          message: 'Không tìm thấy nhóm nhạc!'
+        });
+
+      }
+
+
+      // =================================================
+      // KIỂM TRA TRÙNG ALBUM
+      // =================================================
+
+      const [existing] = await db.query(`
+        SELECT
+          id
+
+        FROM albums
+
+        WHERE group_id = ?
+
         AND LOWER(name) = LOWER(?)
-      LIMIT 1
-    `, [group_id, albumName]);
+
+        LIMIT 1
+      `, [
+        group_id,
+        albumName
+      ]);
 
 
-    if (existing.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Album này đã tồn tại trong nhóm!'
+      if (existing.length > 0) {
+
+        return res.status(400).json({
+          success: false,
+          message: 'Album này đã tồn tại trong nhóm!'
+        });
+
+      }
+
+
+      // =================================================
+      // UPLOAD ẢNH
+      // =================================================
+
+      let imageUrl = null;
+
+      if (req.file) {
+
+        const result =
+          await uploadToCloudinary(req.file);
+
+        imageUrl = result.secure_url;
+
+      }
+
+
+      // =================================================
+      // INSERT ALBUM
+      // =================================================
+
+      const [result] = await db.query(`
+        INSERT INTO albums (
+
+          group_id,
+          name,
+          release_date,
+          description,
+          image_url
+
+        )
+
+        VALUES (?, ?, ?, ?, ?)
+      `, [
+
+        group_id,
+        albumName,
+        release_date || null,
+        description || null,
+        imageUrl
+
+      ]);
+
+
+      // =================================================
+      // LẤY ALBUM VỪA TẠO
+      // =================================================
+
+      const [rows] = await db.query(`
+        SELECT
+
+          id,
+          group_id,
+          name,
+          release_date,
+          description,
+          image_url,
+          created_at
+
+        FROM albums
+
+        WHERE id = ?
+      `, [result.insertId]);
+
+
+      res.status(201).json({
+
+        success: true,
+
+        message: 'Thêm album thành công!',
+
+        album: rows[0]
+
       });
+
+    } catch (error) {
+
+      console.error(
+        'Lỗi thêm album:',
+        error
+      );
+
+      res.status(500).json({
+
+        success: false,
+
+        message:
+          error.message ||
+          'Không thể thêm album!'
+
+      });
+
     }
-
-
-    // Thêm album
-    const [result] = await db.query(`
-      INSERT INTO albums (
-        group_id,
-        name,
-        release_date,
-        description,
-        image_url
-      )
-      VALUES (?, ?, ?, ?, ?)
-    `, [
-      group_id,
-      albumName,
-      release_date || null,
-      description || null,
-      image_url || null
-    ]);
-
-
-    // Lấy album vừa tạo
-    const [rows] = await db.query(`
-      SELECT
-        id,
-        group_id,
-        name,
-        release_date,
-        description,
-        image_url,
-        created_at
-      FROM albums
-      WHERE id = ?
-    `, [result.insertId]);
-
-
-    res.status(201).json({
-      success: true,
-      message: 'Thêm album thành công!',
-      album: rows[0]
-    });
-
-  } catch (error) {
-
-    console.error('Lỗi thêm album:', error);
-
-    res.status(500).json({
-      success: false,
-      message: 'Không thể thêm album!'
-    });
 
   }
-});
+);
 
 
 // =====================================================
 // PUT - CẬP NHẬT ALBUM
 // PUT /api/albums/:id
+//
+// multipart/form-data
+//
+// Fields:
+// group_id
+// name
+// release_date
+// description
+// image
 // =====================================================
 
-router.put('/:id', async (req, res) => {
-  try {
+router.put(
+  '/:id',
+  upload.single('image'),
+  async (req, res) => {
 
-    const { id } = req.params;
+    try {
 
-    const {
-      group_id,
-      name,
-      release_date,
-      description,
-      image_url
-    } = req.body;
+      const { id } = req.params;
 
-
-    if (!id || isNaN(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'ID album không hợp lệ!'
-      });
-    }
-
-
-    if (!group_id || isNaN(group_id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Vui lòng chọn nhóm nhạc!'
-      });
-    }
-
-
-    if (!name || !name.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tên album không được để trống!'
-      });
-    }
-
-
-    const albumName = name.trim();
-
-
-    // Kiểm tra album tồn tại
-    const [existingAlbum] = await db.query(`
-      SELECT id
-      FROM albums
-      WHERE id = ?
-      LIMIT 1
-    `, [id]);
-
-
-    if (existingAlbum.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Không tìm thấy album!'
-      });
-    }
-
-
-    // Kiểm tra nhóm tồn tại
-    const [groups] = await db.query(`
-      SELECT id
-      FROM kpop_groups
-      WHERE id = ?
-      LIMIT 1
-    `, [group_id]);
-
-
-    if (groups.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Không tìm thấy nhóm nhạc!'
-      });
-    }
-
-
-    // Kiểm tra trùng tên
-    const [duplicate] = await db.query(`
-      SELECT id
-      FROM albums
-      WHERE group_id = ?
-        AND LOWER(name) = LOWER(?)
-        AND id <> ?
-      LIMIT 1
-    `, [
-      group_id,
-      albumName,
-      id
-    ]);
-
-
-    if (duplicate.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Album này đã tồn tại trong nhóm!'
-      });
-    }
-
-
-    await db.query(`
-      UPDATE albums
-
-      SET
-        group_id = ?,
-        name = ?,
-        release_date = ?,
-        description = ?,
-        image_url = ?
-
-      WHERE id = ?
-    `, [
-      group_id,
-      albumName,
-      release_date || null,
-      description || null,
-      image_url || null,
-      id
-    ]);
-
-
-    const [rows] = await db.query(`
-      SELECT
-        id,
+      const {
         group_id,
         name,
         release_date,
-        description,
-        image_url,
-        created_at
-      FROM albums
-      WHERE id = ?
-    `, [id]);
+        description
+      } = req.body;
 
 
-    res.json({
-      success: true,
-      message: 'Cập nhật album thành công!',
-      album: rows[0]
-    });
+      // =================================================
+      // VALIDATE
+      // =================================================
 
-  } catch (error) {
+      if (!id || isNaN(id)) {
 
-    console.error('Lỗi cập nhật album:', error);
+        return res.status(400).json({
+          success: false,
+          message: 'ID album không hợp lệ!'
+        });
 
-    res.status(500).json({
-      success: false,
-      message: 'Không thể cập nhật album!'
-    });
+      }
+
+
+      if (!group_id || isNaN(group_id)) {
+
+        return res.status(400).json({
+          success: false,
+          message: 'Vui lòng chọn nhóm nhạc!'
+        });
+
+      }
+
+
+      if (!name || !name.trim()) {
+
+        return res.status(400).json({
+          success: false,
+          message: 'Tên album không được để trống!'
+        });
+
+      }
+
+
+      const albumName = name.trim();
+
+
+      // =================================================
+      // LẤY ALBUM CŨ
+      // =================================================
+
+      const [existingAlbum] = await db.query(`
+        SELECT
+
+          id,
+          image_url
+
+        FROM albums
+
+        WHERE id = ?
+
+        LIMIT 1
+      `, [id]);
+
+
+      if (existingAlbum.length === 0) {
+
+        return res.status(404).json({
+          success: false,
+          message: 'Không tìm thấy album!'
+        });
+
+      }
+
+
+      const oldAlbum = existingAlbum[0];
+
+
+      // =================================================
+      // KIỂM TRA GROUP
+      // =================================================
+
+      const [groups] = await db.query(`
+        SELECT
+          id
+
+        FROM kpop_groups
+
+        WHERE id = ?
+
+        LIMIT 1
+      `, [group_id]);
+
+
+      if (groups.length === 0) {
+
+        return res.status(404).json({
+          success: false,
+          message: 'Không tìm thấy nhóm nhạc!'
+        });
+
+      }
+
+
+      // =================================================
+      // KIỂM TRA TRÙNG TÊN
+      // =================================================
+
+      const [duplicate] = await db.query(`
+        SELECT
+          id
+
+        FROM albums
+
+        WHERE group_id = ?
+
+        AND LOWER(name) = LOWER(?)
+
+        AND id <> ?
+
+        LIMIT 1
+      `, [
+
+        group_id,
+        albumName,
+        id
+
+      ]);
+
+
+      if (duplicate.length > 0) {
+
+        return res.status(400).json({
+          success: false,
+          message: 'Album này đã tồn tại trong nhóm!'
+        });
+
+      }
+
+
+      // =================================================
+      // XỬ LÝ ẢNH
+      // =================================================
+
+      let imageUrl = oldAlbum.image_url;
+
+
+      if (req.file) {
+
+        const result =
+          await uploadToCloudinary(req.file);
+
+        imageUrl = result.secure_url;
+
+      }
+
+
+      // =================================================
+      // UPDATE
+      // =================================================
+
+      await db.query(`
+        UPDATE albums
+
+        SET
+
+          group_id = ?,
+          name = ?,
+          release_date = ?,
+          description = ?,
+          image_url = ?
+
+        WHERE id = ?
+      `, [
+
+        group_id,
+        albumName,
+        release_date || null,
+        description || null,
+        imageUrl,
+        id
+
+      ]);
+
+
+      // =================================================
+      // XÓA ẢNH CŨ SAU KHI UPDATE THÀNH CÔNG
+      // =================================================
+
+      if (
+        req.file &&
+        oldAlbum.image_url &&
+        oldAlbum.image_url !== imageUrl
+      ) {
+
+        await deleteFromCloudinary(
+          oldAlbum.image_url
+        );
+
+      }
+
+
+      // =================================================
+      // LẤY DỮ LIỆU MỚI
+      // =================================================
+
+      const [rows] = await db.query(`
+        SELECT
+
+          id,
+          group_id,
+          name,
+          release_date,
+          description,
+          image_url,
+          created_at
+
+        FROM albums
+
+        WHERE id = ?
+      `, [id]);
+
+
+      res.json({
+
+        success: true,
+
+        message: 'Cập nhật album thành công!',
+
+        album: rows[0]
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        'Lỗi cập nhật album:',
+        error
+      );
+
+      res.status(500).json({
+
+        success: false,
+
+        message:
+          error.message ||
+          'Không thể cập nhật album!'
+
+      });
+
+    }
 
   }
-});
+);
 
 
 // =====================================================
@@ -545,75 +913,174 @@ router.put('/:id', async (req, res) => {
 // =====================================================
 
 router.delete('/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
 
 
     if (!id || isNaN(id)) {
+
       return res.status(400).json({
         success: false,
         message: 'ID album không hợp lệ!'
       });
+
     }
 
 
-    // Kiểm tra album tồn tại
+    // =================================================
+    // LẤY ALBUM
+    // =================================================
+
     const [existing] = await db.query(`
-      SELECT id
+      SELECT
+
+        id,
+        image_url
+
       FROM albums
+
       WHERE id = ?
+
       LIMIT 1
     `, [id]);
 
 
     if (existing.length === 0) {
+
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy album!'
       });
+
     }
 
 
-    // Không cho xóa nếu còn product/version
+    const album = existing[0];
+
+
+    // =================================================
+    // KIỂM TRA PRODUCT
+    // =================================================
+
     const [products] = await db.query(`
-      SELECT id
+      SELECT
+        id
+
       FROM products
+
       WHERE album_id = ?
+
       LIMIT 1
     `, [id]);
 
 
     if (products.length > 0) {
+
       return res.status(400).json({
+
         success: false,
+
         message:
           'Không thể xóa album vì album đang có version sản phẩm!'
+
       });
+
     }
 
 
+    // =================================================
+    // DELETE ALBUM
+    // =================================================
+
     await db.query(`
       DELETE FROM albums
+
       WHERE id = ?
     `, [id]);
 
 
+    // =================================================
+    // XÓA ẢNH CLOUDINARY
+    // =================================================
+
+    if (album.image_url) {
+
+      await deleteFromCloudinary(
+        album.image_url
+      );
+
+    }
+
+
     res.json({
+
       success: true,
+
       message: 'Xóa album thành công!'
+
     });
 
   } catch (error) {
 
-    console.error('Lỗi xóa album:', error);
+    console.error(
+      'Lỗi xóa album:',
+      error
+    );
 
     res.status(500).json({
+
       success: false,
-      message: 'Không thể xóa album!'
+
+      message:
+        error.message ||
+        'Không thể xóa album!'
+
     });
 
   }
+
+});
+
+
+// =====================================================
+// MULTER ERROR HANDLER
+// =====================================================
+
+router.use((error, req, res, next) => {
+
+  if (error instanceof multer.MulterError) {
+
+    if (error.code === 'LIMIT_FILE_SIZE') {
+
+      return res.status(400).json({
+        success: false,
+        message: 'Ảnh không được vượt quá 5MB!'
+      });
+
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+
+
+  if (error) {
+
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+
+
+  next();
+
 });
 
 
