@@ -183,7 +183,7 @@ router.post('/', async (req, res) => {
   const connection = await db.getConnection();
 
   try {
-    const { user_id, customer_name, phone, address, note, items } = req.body;
+    const { user_id, customer_name, phone, address, items } = req.body;
 
     if (!customer_name || !phone) {
       return res.status(400).json({
@@ -231,14 +231,13 @@ router.post('/', async (req, res) => {
     // 3. Chèn đơn hàng mới (Bỏ customer_name vì không có trong schema orders)
     const [orderResult] = await connection.query(
       `
-      INSERT INTO orders (user_id, phone, address, note, total_amount, status, created_at)
+      INSERT INTO orders (user_id, phone, address, total_amount, status, created_at)
       VALUES (?, ?, ?, ?, ?, 'PENDING', NOW())
     `,
       [
         finalUserId,
         phone,
         address || '',
-        note || '',
         totalAmount
       ]
     );
