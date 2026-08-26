@@ -20,7 +20,6 @@ cloudinary.config({
 
 // =====================================================
 // MULTER
-// Lưu file trong memory để upload trực tiếp Cloudinary
 // =====================================================
 
 const upload = multer({
@@ -53,38 +52,40 @@ const upload = multer({
 
 
 // =====================================================
-// HÀM UPLOAD CLOUDINARY
+// UPLOAD CLOUDINARY
 // =====================================================
 
 const uploadToCloudinary = (buffer) => {
+
   return new Promise((resolve, reject) => {
 
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: 'chipchip/products',
+    const stream =
+      cloudinary.uploader.upload_stream(
+        {
+          folder: 'chipchip/products',
 
-        resource_type: 'image',
+          resource_type: 'image',
 
-        transformation: [
-          {
-            width: 1000,
-            height: 1000,
-            crop: 'limit',
-            quality: 'auto',
-            fetch_format: 'auto'
+          transformation: [
+            {
+              width: 1000,
+              height: 1000,
+              crop: 'limit',
+              quality: 'auto',
+              fetch_format: 'auto'
+            }
+          ]
+        },
+
+        (error, result) => {
+
+          if (error) {
+            return reject(error);
           }
-        ]
-      },
 
-      (error, result) => {
-
-        if (error) {
-          return reject(error);
+          resolve(result);
         }
-
-        resolve(result);
-      }
-    );
+      );
 
     stream.end(buffer);
   });
@@ -92,7 +93,7 @@ const uploadToCloudinary = (buffer) => {
 
 
 // =====================================================
-// HÀM XÓA ẢNH CLOUDINARY
+// XÓA ẢNH CLOUDINARY
 // =====================================================
 
 const deleteFromCloudinary = async (publicId) => {
@@ -101,7 +102,9 @@ const deleteFromCloudinary = async (publicId) => {
 
   try {
 
-    await cloudinary.uploader.destroy(publicId);
+    await cloudinary.uploader.destroy(
+      publicId
+    );
 
   } catch (error) {
 
@@ -115,7 +118,19 @@ const deleteFromCloudinary = async (publicId) => {
 
 
 // =====================================================
-// GET - LẤY TẤT CẢ SẢN PHẨM
+// HELPER
+// =====================================================
+
+const validCategories = [
+  'album',
+  'photocard',
+  'md_event',
+  'lightstick'
+];
+
+
+// =====================================================
+// GET - TẤT CẢ SẢN PHẨM
 //
 // GET /api/products
 // =====================================================
@@ -124,10 +139,13 @@ router.get('/', async (req, res) => {
 
   try {
 
-    const [rows] = await db.query(`
+    const {
+      category,
+      search
+    } = req.query;
 
+    let sql = `
       SELECT
-
         p.id,
         p.album_id,
         p.title,
@@ -155,14 +173,12 @@ router.get('/', async (req, res) => {
 
         (
           p.price -
-
           COALESCE(
             SUM(
               d.quantity * d.import_price
             ) / NULLIF(SUM(d.quantity), 0),
             0
           )
-
         ) AS estimated_profit
 
       FROM products p
@@ -176,8 +192,59 @@ router.get('/', async (req, res) => {
       LEFT JOIN import_details d
         ON d.product_id = p.id
 
-      GROUP BY
+      WHERE 1 = 1
+    `;
 
+    const params = [];
+
+
+    // =================================================
+    // FILTER CATEGORY
+    // =================================================
+
+    if (
+      category &&
+      validCategories.includes(category)
+    ) {
+
+      sql += `
+        AND p.category = ?
+      `;
+
+      params.push(category);
+    }
+
+
+    // =================================================
+    // SEARCH
+    // =================================================
+
+    if (search && search.trim()) {
+
+      sql += `
+        AND (
+          LOWER(p.title) LIKE LOWER(?)
+          OR LOWER(p.version_name) LIKE LOWER(?)
+          OR LOWER(a.name) LIKE LOWER(?)
+          OR LOWER(g.name) LIKE LOWER(?)
+        )
+      `;
+
+      const keyword =
+        `%${search.trim()}%`;
+
+      params.push(
+        keyword,
+        keyword,
+        keyword,
+        keyword
+      );
+    }
+
+
+    sql += `
+
+      GROUP BY
         p.id,
         p.album_id,
         p.title,
@@ -196,8 +263,12 @@ router.get('/', async (req, res) => {
         g.name
 
       ORDER BY p.id DESC
+    `;
 
-    `);
+
+    const [rows] =
+      await db.query(sql, params);
+
 
     res.json({
       success: true,
@@ -216,9 +287,7 @@ router.get('/', async (req, res) => {
       message:
         'Không thể lấy danh sách sản phẩm!'
     });
-
   }
-
 });
 
 
@@ -227,21 +296,24 @@ router.get('/', async (req, res) => {
 //
 // GET /api/products/albums
 //
-// Dùng cho dropdown khi thêm sản phẩm
+// Có hỗ trợ tìm kiếm:
+//
+// GET /api/products/albums?search=RIIZE
 // =====================================================
 
 router.get('/albums', async (req, res) => {
 
   try {
 
-    const [rows] = await db.query(`
+    const {
+      search
+    } = req.query;
 
+    let sql = `
       SELECT
-
         a.id,
         a.name,
         a.group_id,
-
         g.name AS group_name
 
       FROM albums a
@@ -249,11 +321,44 @@ router.get('/albums', async (req, res) => {
       LEFT JOIN kpop_groups g
         ON a.group_id = g.id
 
+      WHERE 1 = 1
+    `;
+
+    const params = [];
+
+
+    if (search && search.trim()) {
+
+      sql += `
+        AND (
+          LOWER(a.name) LIKE LOWER(?)
+          OR LOWER(g.name) LIKE LOWER(?)
+        )
+      `;
+
+      const keyword =
+        `%${search.trim()}%`;
+
+      params.push(
+        keyword,
+        keyword
+      );
+    }
+
+
+    sql += `
       ORDER BY
         g.name ASC,
         a.name ASC
+    `;
 
-    `);
+
+    const [rows] =
+      await db.query(
+        sql,
+        params
+      );
+
 
     res.json({
       success: true,
@@ -272,9 +377,7 @@ router.get('/albums', async (req, res) => {
       message:
         'Không thể lấy danh sách album!'
     });
-
   }
-
 });
 
 
@@ -288,104 +391,116 @@ router.get('/:id', async (req, res) => {
 
   try {
 
-    const { id } = req.params;
+    const {
+      id
+    } = req.params;
 
-    if (!id || isNaN(id)) {
+
+    if (
+      !id ||
+      isNaN(id)
+    ) {
 
       return res.status(400).json({
         success: false,
         message:
           'ID sản phẩm không hợp lệ!'
       });
-
     }
 
 
-    const [products] = await db.query(`
+    const [products] =
+      await db.query(`
 
-      SELECT
+        SELECT
 
-        p.id,
-        p.album_id,
-        p.title,
-        p.version_name,
-        p.price,
-        p.stock,
-        p.image_url,
-        p.category,
-        p.is_preorder,
-        p.release_date,
-        p.description,
-        p.created_at,
+          p.id,
+          p.album_id,
+          p.title,
+          p.version_name,
+          p.price,
+          p.stock,
+          p.image_url,
+          p.category,
+          p.is_preorder,
+          p.release_date,
+          p.description,
+          p.created_at,
 
-        a.name AS album_name,
+          a.name AS album_name,
 
-        g.id AS group_id,
-        g.name AS group_name
+          g.id AS group_id,
+          g.name AS group_name
 
-      FROM products p
+        FROM products p
 
-      LEFT JOIN albums a
-        ON p.album_id = a.id
+        LEFT JOIN albums a
+          ON p.album_id = a.id
 
-      LEFT JOIN kpop_groups g
-        ON a.group_id = g.id
+        LEFT JOIN kpop_groups g
+          ON a.group_id = g.id
 
-      WHERE p.id = ?
+        WHERE p.id = ?
 
-      LIMIT 1
+        LIMIT 1
 
-    `, [id]);
+      `, [id]);
 
 
-    if (products.length === 0) {
+    if (
+      products.length === 0
+    ) {
 
       return res.status(404).json({
         success: false,
         message:
           'Không tìm thấy sản phẩm!'
       });
-
     }
 
 
     // =================================================
-    // TÍNH GIÁ NHẬP BÌNH QUÂN
+    // GIÁ NHẬP
     // =================================================
 
-    const [costRows] = await db.query(`
+    const [costRows] =
+      await db.query(`
 
-      SELECT
+        SELECT
 
-        COALESCE(
-          SUM(quantity * import_price)
-          / NULLIF(SUM(quantity), 0),
-          0
-        ) AS average_import_price,
+          COALESCE(
+            SUM(quantity * import_price)
+            / NULLIF(SUM(quantity), 0),
+            0
+          ) AS average_import_price,
 
-        COALESCE(
-          SUM(quantity),
-          0
-        ) AS total_import_quantity,
+          COALESCE(
+            SUM(quantity),
+            0
+          ) AS total_import_quantity,
 
-        COALESCE(
-          SUM(quantity * import_price),
-          0
-        ) AS total_import_cost
+          COALESCE(
+            SUM(quantity * import_price),
+            0
+          ) AS total_import_cost
 
-      FROM import_details
+        FROM import_details
 
-      WHERE product_id = ?
+        WHERE product_id = ?
 
-    `, [id]);
+      `, [id]);
 
 
-    const product = products[0];
+    const product =
+      products[0];
+
 
     const averageImportPrice =
       Number(
-        costRows[0]?.average_import_price || 0
+        costRows[0]
+          ?.average_import_price || 0
       );
+
 
     const estimatedProfit =
       Number(product.price) -
@@ -397,6 +512,7 @@ router.get('/:id', async (req, res) => {
       success: true,
 
       product: {
+
         ...product,
 
         average_import_price:
@@ -407,12 +523,14 @@ router.get('/:id', async (req, res) => {
 
         total_import_quantity:
           Number(
-            costRows[0]?.total_import_quantity || 0
+            costRows[0]
+              ?.total_import_quantity || 0
           ),
 
         total_import_cost:
           Number(
-            costRows[0]?.total_import_cost || 0
+            costRows[0]
+              ?.total_import_cost || 0
           )
       }
 
@@ -430,9 +548,7 @@ router.get('/:id', async (req, res) => {
       message:
         'Không thể lấy thông tin sản phẩm!'
     });
-
   }
-
 });
 
 
@@ -464,18 +580,25 @@ router.post(
       } = req.body;
 
 
+      const productCategory =
+        category || 'album';
+
+
       // =================================================
-      // VALIDATE ALBUM
+      // VALIDATE CATEGORY
       // =================================================
 
-      if (!album_id || isNaN(album_id)) {
+      if (
+        !validCategories.includes(
+          productCategory
+        )
+      ) {
 
         return res.status(400).json({
           success: false,
           message:
-            'Vui lòng chọn album!'
+            'Danh mục sản phẩm không hợp lệ!'
         });
-
       }
 
 
@@ -483,32 +606,16 @@ router.post(
       // VALIDATE TITLE
       // =================================================
 
-      if (!title || !title.trim()) {
+      if (
+        !title ||
+        !title.trim()
+      ) {
 
         return res.status(400).json({
           success: false,
           message:
             'Tên sản phẩm không được để trống!'
         });
-
-      }
-
-
-      // =================================================
-      // VALIDATE VERSION
-      // =================================================
-
-      if (
-        !version_name ||
-        !version_name.trim()
-      ) {
-
-        return res.status(400).json({
-          success: false,
-          message:
-            'Tên version không được để trống!'
-        });
-
       }
 
 
@@ -519,7 +626,10 @@ router.post(
       const productPrice =
         Number(price);
 
+
       if (
+        price === undefined ||
+        price === '' ||
         isNaN(productPrice) ||
         productPrice < 0
       ) {
@@ -529,67 +639,137 @@ router.post(
           message:
             'Giá bán không hợp lệ!'
         });
-
       }
 
 
       // =================================================
-      // KIỂM TRA ALBUM
+      // XỬ LÝ ALBUM + VERSION
       // =================================================
 
-      const [albums] = await db.query(`
-
-        SELECT
-          id
-        FROM albums
-        WHERE id = ?
-        LIMIT 1
-
-      `, [album_id]);
+      let finalAlbumId = null;
+      let finalVersionName = null;
 
 
-      if (albums.length === 0) {
+      // =================================================
+      // NẾU LÀ ALBUM
+      //
+      // BẮT BUỘC:
+      // - album_id
+      // - version_name
+      // =================================================
 
-        return res.status(404).json({
-          success: false,
-          message:
-            'Không tìm thấy album!'
-        });
+      if (
+        productCategory === 'album'
+      ) {
 
+        if (
+          !album_id ||
+          isNaN(album_id)
+        ) {
+
+          return res.status(400).json({
+            success: false,
+            message:
+              'Sản phẩm album phải thuộc một album!'
+          });
+        }
+
+
+        if (
+          !version_name ||
+          !version_name.trim()
+        ) {
+
+          return res.status(400).json({
+            success: false,
+            message:
+              'Sản phẩm album phải có tên version!'
+          });
+        }
+
+
+        finalAlbumId =
+          Number(album_id);
+
+        finalVersionName =
+          version_name.trim();
+
+
+        // Kiểm tra album
+        const [albums] =
+          await db.query(`
+
+            SELECT id
+
+            FROM albums
+
+            WHERE id = ?
+
+            LIMIT 1
+
+          `, [finalAlbumId]);
+
+
+        if (
+          albums.length === 0
+        ) {
+
+          return res.status(404).json({
+            success: false,
+            message:
+              'Không tìm thấy album!'
+          });
+        }
+
+
+        // Kiểm tra version trùng
+        const [existing] =
+          await db.query(`
+
+            SELECT id
+
+            FROM products
+
+            WHERE album_id = ?
+
+              AND LOWER(version_name)
+                  = LOWER(?)
+
+            LIMIT 1
+
+          `, [
+            finalAlbumId,
+            finalVersionName
+          ]);
+
+
+        if (
+          existing.length > 0
+        ) {
+
+          return res.status(400).json({
+            success: false,
+            message:
+              'Version này đã tồn tại trong album!'
+          });
+        }
       }
 
 
       // =================================================
-      // KIỂM TRA VERSION TRÙNG
+      // PHOTOCARD / MD EVENT / LIGHTSTICK
+      //
+      // KHÔNG CẦN:
+      // - album_id
+      // - version_name
       // =================================================
 
-      const [existing] = await db.query(`
+      if (
+        productCategory !== 'album'
+      ) {
 
-        SELECT
-          id
-        FROM products
-
-        WHERE album_id = ?
-
-          AND LOWER(version_name)
-              = LOWER(?)
-
-        LIMIT 1
-
-      `, [
-        album_id,
-        version_name.trim()
-      ]);
-
-
-      if (existing.length > 0) {
-
-        return res.status(400).json({
-          success: false,
-          message:
-            'Version này đã tồn tại trong album!'
-        });
-
+        finalAlbumId = null;
+        finalVersionName = null;
       }
 
 
@@ -598,7 +778,6 @@ router.post(
       // =================================================
 
       let imageUrl = null;
-      let imagePublicId = null;
 
       if (req.file) {
 
@@ -609,10 +788,6 @@ router.post(
 
         imageUrl =
           uploaded.secure_url;
-
-        imagePublicId =
-          uploaded.public_id;
-
       }
 
 
@@ -620,80 +795,85 @@ router.post(
       // INSERT
       // =================================================
 
-      const [result] = await db.query(`
+      const [result] =
+        await db.query(`
 
-        INSERT INTO products (
+          INSERT INTO products (
 
-          album_id,
-          title,
-          version_name,
-          price,
-          stock,
-          image_url,
-          category,
-          is_preorder,
-          release_date,
+            album_id,
+            title,
+            version_name,
+            price,
+            stock,
+            image_url,
+            category,
+            is_preorder,
+            release_date,
+            description
+
+          )
+
+          VALUES (
+            ?, ?, ?, ?, 0, ?, ?, ?, ?, ?
+          )
+
+        `, [
+
+          finalAlbumId,
+
+          title.trim(),
+
+          finalVersionName,
+
+          productPrice,
+
+          imageUrl,
+
+          productCategory,
+
+          (
+            is_preorder === 'true' ||
+            is_preorder === '1'
+          )
+            ? 1
+            : 0,
+
+          release_date || null,
+
           description
-
-        )
-
-        VALUES (
-          ?, ?, ?, ?, 0, ?, ?, ?, ?, ?
-        )
-
-      `, [
-
-        album_id,
-
-        title.trim(),
-
-        version_name.trim(),
-
-        productPrice,
-
-        imageUrl,
-
-        category || 'album',
-
-        is_preorder === 'true'
-          || is_preorder === '1'
-          ? 1
-          : 0,
-
-        release_date || null,
-
-        description
-          ? description.trim()
-          : null
-
-      ]);
+            ? description.trim()
+            : null
+        ]);
 
 
       // =================================================
       // LẤY LẠI
       // =================================================
 
-      const [rows] = await db.query(`
+      const [rows] =
+        await db.query(`
 
-        SELECT
+          SELECT
 
-          p.*,
+            p.*,
 
-          a.name AS album_name,
+            a.name AS album_name,
 
-          g.name AS group_name
+            g.name AS group_name
 
-        FROM products p
+          FROM products p
 
-        LEFT JOIN albums a
-          ON p.album_id = a.id
+          LEFT JOIN albums a
+            ON p.album_id = a.id
 
-        LEFT JOIN kpop_groups g
-          ON a.group_id = g.id
+          LEFT JOIN kpop_groups g
+            ON a.group_id = g.id
 
-        WHERE p.id = ?
+          WHERE p.id = ?
 
-      `, [result.insertId]);
+        `, [
+          result.insertId
+        ]);
 
 
       res.status(201).json({
@@ -703,7 +883,8 @@ router.post(
         message:
           'Thêm sản phẩm thành công!',
 
-        product: rows[0]
+        product:
+          rows[0]
 
       });
 
@@ -720,9 +901,7 @@ router.post(
           error.message ||
           'Không thể thêm sản phẩm!'
       });
-
     }
-
   }
 );
 
@@ -741,16 +920,21 @@ router.put(
 
     try {
 
-      const { id } = req.params;
+      const {
+        id
+      } = req.params;
 
-      if (!id || isNaN(id)) {
+
+      if (
+        !id ||
+        isNaN(id)
+      ) {
 
         return res.status(400).json({
           success: false,
           message:
             'ID sản phẩm không hợp lệ!'
         });
-
       }
 
 
@@ -766,46 +950,56 @@ router.put(
       } = req.body;
 
 
-      if (!album_id || isNaN(album_id)) {
+      const productCategory =
+        category || 'album';
+
+
+      // =================================================
+      // VALIDATE CATEGORY
+      // =================================================
+
+      if (
+        !validCategories.includes(
+          productCategory
+        )
+      ) {
 
         return res.status(400).json({
           success: false,
           message:
-            'Vui lòng chọn album!'
+            'Danh mục sản phẩm không hợp lệ!'
         });
-
       }
 
 
-      if (!title || !title.trim()) {
+      // =================================================
+      // VALIDATE TITLE
+      // =================================================
+
+      if (
+        !title ||
+        !title.trim()
+      ) {
 
         return res.status(400).json({
           success: false,
           message:
             'Tên sản phẩm không được để trống!'
         });
-
       }
 
 
-      if (
-        !version_name ||
-        !version_name.trim()
-      ) {
-
-        return res.status(400).json({
-          success: false,
-          message:
-            'Tên version không được để trống!'
-        });
-
-      }
-
+      // =================================================
+      // VALIDATE PRICE
+      // =================================================
 
       const productPrice =
         Number(price);
 
+
       if (
+        price === undefined ||
+        price === '' ||
         isNaN(productPrice) ||
         productPrice < 0
       ) {
@@ -815,100 +1009,166 @@ router.put(
           message:
             'Giá bán không hợp lệ!'
         });
-
       }
 
 
       // =================================================
-      // KIỂM TRA PRODUCT
+      // LẤY PRODUCT CŨ
       // =================================================
 
-      const [products] = await db.query(`
+      const [products] =
+        await db.query(`
 
-        SELECT
-          id,
-          image_url
+          SELECT
 
-        FROM products
+            id,
+            album_id,
+            version_name,
+            image_url,
+            category
 
-        WHERE id = ?
+          FROM products
 
-        LIMIT 1
+          WHERE id = ?
 
-      `, [id]);
+          LIMIT 1
+
+        `, [id]);
 
 
-      if (products.length === 0) {
+      if (
+        products.length === 0
+      ) {
 
         return res.status(404).json({
           success: false,
           message:
             'Không tìm thấy sản phẩm!'
         });
-
       }
 
 
       // =================================================
-      // KIỂM TRA ALBUM
+      // ALBUM PRODUCT
       // =================================================
 
-      const [albums] = await db.query(`
-
-        SELECT id
-        FROM albums
-        WHERE id = ?
-        LIMIT 1
-
-      `, [album_id]);
+      let finalAlbumId = null;
+      let finalVersionName = null;
 
 
-      if (albums.length === 0) {
+      if (
+        productCategory === 'album'
+      ) {
 
-        return res.status(404).json({
-          success: false,
-          message:
-            'Không tìm thấy album!'
-        });
+        if (
+          !album_id ||
+          isNaN(album_id)
+        ) {
 
+          return res.status(400).json({
+            success: false,
+            message:
+              'Sản phẩm album phải thuộc một album!'
+          });
+        }
+
+
+        if (
+          !version_name ||
+          !version_name.trim()
+        ) {
+
+          return res.status(400).json({
+            success: false,
+            message:
+              'Sản phẩm album phải có tên version!'
+          });
+        }
+
+
+        finalAlbumId =
+          Number(album_id);
+
+        finalVersionName =
+          version_name.trim();
+
+
+        // Kiểm tra album
+        const [albums] =
+          await db.query(`
+
+            SELECT id
+
+            FROM albums
+
+            WHERE id = ?
+
+            LIMIT 1
+
+          `, [
+            finalAlbumId
+          ]);
+
+
+        if (
+          albums.length === 0
+        ) {
+
+          return res.status(404).json({
+            success: false,
+            message:
+              'Không tìm thấy album!'
+          });
+        }
+
+
+        // Kiểm tra version trùng
+        const [duplicate] =
+          await db.query(`
+
+            SELECT id
+
+            FROM products
+
+            WHERE album_id = ?
+
+              AND LOWER(version_name)
+                  = LOWER(?)
+
+              AND id <> ?
+
+            LIMIT 1
+
+          `, [
+            finalAlbumId,
+            finalVersionName,
+            id
+          ]);
+
+
+        if (
+          duplicate.length > 0
+        ) {
+
+          return res.status(400).json({
+            success: false,
+            message:
+              'Version này đã tồn tại trong album!'
+          });
+        }
       }
 
 
       // =================================================
-      // KIỂM TRA TRÙNG VERSION
+      // SẢN PHẨM ĐỘC LẬP
       // =================================================
 
-      const [duplicate] = await db.query(`
+      if (
+        productCategory !== 'album'
+      ) {
 
-        SELECT
-          id
-
-        FROM products
-
-        WHERE album_id = ?
-
-          AND LOWER(version_name)
-              = LOWER(?)
-
-          AND id <> ?
-
-        LIMIT 1
-
-      `, [
-        album_id,
-        version_name.trim(),
-        id
-      ]);
-
-
-      if (duplicate.length > 0) {
-
-        return res.status(400).json({
-          success: false,
-          message:
-            'Version này đã tồn tại trong album!'
-        });
-
+        finalAlbumId = null;
+        finalVersionName = null;
       }
 
 
@@ -929,7 +1189,6 @@ router.put(
 
         imageUrl =
           uploaded.secure_url;
-
       }
 
 
@@ -957,20 +1216,22 @@ router.put(
 
       `, [
 
-        album_id,
+        finalAlbumId,
 
         title.trim(),
 
-        version_name.trim(),
+        finalVersionName,
 
         productPrice,
 
         imageUrl,
 
-        category || 'album',
+        productCategory,
 
-        is_preorder === 'true'
-          || is_preorder === '1'
+        (
+          is_preorder === 'true' ||
+          is_preorder === '1'
+        )
           ? 1
           : 0,
 
@@ -989,27 +1250,28 @@ router.put(
       // LẤY LẠI
       // =================================================
 
-      const [rows] = await db.query(`
+      const [rows] =
+        await db.query(`
 
-        SELECT
+          SELECT
 
-          p.*,
+            p.*,
 
-          a.name AS album_name,
+            a.name AS album_name,
 
-          g.name AS group_name
+            g.name AS group_name
 
-        FROM products p
+          FROM products p
 
-        LEFT JOIN albums a
-          ON p.album_id = a.id
+          LEFT JOIN albums a
+            ON p.album_id = a.id
 
-        LEFT JOIN kpop_groups g
-          ON a.group_id = g.id
+          LEFT JOIN kpop_groups g
+            ON a.group_id = g.id
 
-        WHERE p.id = ?
+          WHERE p.id = ?
 
-      `, [id]);
+        `, [id]);
 
 
       res.json({
@@ -1019,7 +1281,8 @@ router.put(
         message:
           'Cập nhật sản phẩm thành công!',
 
-        product: rows[0]
+        product:
+          rows[0]
 
       });
 
@@ -1036,9 +1299,7 @@ router.put(
           error.message ||
           'Không thể cập nhật sản phẩm!'
       });
-
     }
-
   }
 );
 
@@ -1053,16 +1314,21 @@ router.delete('/:id', async (req, res) => {
 
   try {
 
-    const { id } = req.params;
+    const {
+      id
+    } = req.params;
 
-    if (!id || isNaN(id)) {
+
+    if (
+      !id ||
+      isNaN(id)
+    ) {
 
       return res.status(400).json({
         success: false,
         message:
           'ID sản phẩm không hợp lệ!'
       });
-
     }
 
 
@@ -1070,30 +1336,33 @@ router.delete('/:id', async (req, res) => {
     // KIỂM TRA PRODUCT
     // =================================================
 
-    const [products] = await db.query(`
+    const [products] =
+      await db.query(`
 
-      SELECT
-        id,
-        stock,
-        image_url
+        SELECT
 
-      FROM products
+          id,
+          stock,
+          image_url
 
-      WHERE id = ?
+        FROM products
 
-      LIMIT 1
+        WHERE id = ?
 
-    `, [id]);
+        LIMIT 1
+
+      `, [id]);
 
 
-    if (products.length === 0) {
+    if (
+      products.length === 0
+    ) {
 
       return res.status(404).json({
         success: false,
         message:
           'Không tìm thấy sản phẩm!'
       });
-
     }
 
 
@@ -1110,36 +1379,36 @@ router.delete('/:id', async (req, res) => {
         message:
           'Không thể xóa sản phẩm vì sản phẩm vẫn còn tồn kho!'
       });
-
     }
 
 
     // =================================================
-    // KIỂM TRA ĐÃ TỪNG NHẬP HÀNG
+    // KIỂM TRA LỊCH SỬ NHẬP HÀNG
     // =================================================
 
-    const [imports] = await db.query(`
+    const [imports] =
+      await db.query(`
 
-      SELECT
-        id
+        SELECT id
 
-      FROM import_details
+        FROM import_details
 
-      WHERE product_id = ?
+        WHERE product_id = ?
 
-      LIMIT 1
+        LIMIT 1
 
-    `, [id]);
+      `, [id]);
 
 
-    if (imports.length > 0) {
+    if (
+      imports.length > 0
+    ) {
 
       return res.status(400).json({
         success: false,
         message:
           'Không thể xóa sản phẩm vì sản phẩm đã có lịch sử nhập hàng!'
       });
-
     }
 
 
@@ -1177,44 +1446,43 @@ router.delete('/:id', async (req, res) => {
       message:
         'Không thể xóa sản phẩm!'
     });
-
   }
-
 });
 
 
 // =====================================================
-// MULTER / UPLOAD ERROR
+// MULTER ERROR
 // =====================================================
 
-router.use((error, req, res, next) => {
+router.use(
+  (error, req, res, next) => {
 
-  if (error instanceof multer.MulterError) {
+    if (
+      error instanceof multer.MulterError
+    ) {
 
-    return res.status(400).json({
-      success: false,
-      message:
-        'Ảnh không được vượt quá 5MB!'
-    });
+      return res.status(400).json({
+        success: false,
+        message:
+          'Ảnh không được vượt quá 5MB!'
+      });
+    }
 
+
+    if (error) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          error.message ||
+          'Lỗi upload ảnh!'
+      });
+    }
+
+
+    next();
   }
-
-
-  if (error) {
-
-    return res.status(400).json({
-      success: false,
-      message:
-        error.message ||
-        'Lỗi upload ảnh!'
-    });
-
-  }
-
-
-  next();
-
-});
+);
 
 
 module.exports = router;
